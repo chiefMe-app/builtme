@@ -134,6 +134,7 @@ export default function BuiltMe() {
   const [renders, setRenders] = useState<string[]>([]);
   const [renderLoading, setRenderLoading] = useState(false);
   const [roomPhoto, setRoomPhoto] = useState<File | null>(null);
+  const [renderPromptExtra, setRenderPromptExtra] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const floorPlanRef = useRef<HTMLInputElement>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
@@ -244,16 +245,17 @@ export default function BuiltMe() {
     setScreen("results");
   };
 
-  const generateRenders = async () => {
+  const generateRenders = async (updatedResults?: typeof results) => {
     if (!roomPhoto) return;
+    const activeResults = updatedResults || results;
     setRenderLoading(true);
     try {
       const formData = new FormData();
       formData.append("image", roomPhoto);
       formData.append("prompt", prompt);
-      formData.append("style", results?.styleProfile?.dominantStyle || "modern");
+      formData.append("style", activeResults?.styleProfile?.dominantStyle || "modern");
       formData.append("room", RENOVATION_CATEGORIES.find(c => c.id === category)?.label || "room");
-      formData.append("colorPalette", results?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
+      formData.append("colorPalette", activeResults?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
 
       const response = await fetch("/api/render", {
         method: "POST",
@@ -300,6 +302,41 @@ export default function BuiltMe() {
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : "Render failed");
+    }
+    setRenderLoading(false);
+  };
+
+  const reAnalyseWithPrompt = async () => {
+    if (!renderPromptExtra.trim()) return;
+    setRenderLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("category", category || "");
+      formData.append("budget", budget || "");
+      formData.append("prompt", prompt + ". Updated requirements: " + renderPromptExtra);
+
+      const response = await fetch("/api/analyse", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      setResults(data.result);
+
+      // Save updated project to Supabase
+      if (user) {
+        await supabase.from("builtme_projects")
+          .update({ result: data.result })
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+      }
+
+      // Now regenerate renders with new style
+      await generateRenders(data.result);
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : "Failed");
     }
     setRenderLoading(false);
   };
@@ -994,7 +1031,7 @@ export default function BuiltMe() {
 
                     <button
                       className="btn-primary"
-                      onClick={generateRenders}
+                      onClick={() => generateRenders()}
                       disabled={renderLoading || !roomPhoto}
                       style={{ fontSize: 14, padding: "14px 36px" }}
                     >
@@ -1041,8 +1078,26 @@ export default function BuiltMe() {
                           </div>
                         </div>
                       )}
+                      <div style={{ marginTop: 28, marginBottom: 20 }}>
+                        <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 8 }}>REFINE YOUR DESIGN</div>
+                        <input
+                          className="input-field"
+                          value={renderPromptExtra}
+                          onChange={e => setRenderPromptExtra(e.target.value)}
+                          placeholder="e.g. darker tones, add more plants, warmer lighting..."
+                          style={{ marginBottom: 12 }}
+                        />
+                        <button
+                          className="btn-primary"
+                          onClick={reAnalyseWithPrompt}
+                          disabled={renderLoading || !renderPromptExtra.trim()}
+                          style={{ fontSize: 13, padding: "12px 28px" }}
+                        >
+                          {renderLoading ? "Updating design..." : "Update design & render →"}
+                        </button>
+                      </div>
                       <div style={{ textAlign: "center", marginTop: 20 }}>
-                        <button className="btn-ghost" onClick={generateRenders} disabled={renderLoading}>
+                        <button className="btn-ghost" onClick={() => generateRenders()} disabled={renderLoading}>
                           {renderLoading ? "Generating..." : "Regenerate renders"}
                         </button>
                       </div>
