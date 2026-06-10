@@ -280,7 +280,7 @@ export default function BuiltMe() {
     try {
       const formData = new FormData();
       formData.append("image", photoToUse);
-      formData.append("prompt", prompt + (renderPromptExtra ? ". Additional: " + renderPromptExtra : ""));
+      formData.append("prompt", prompt + (renderPromptExtra ? ". User instructions: " + renderPromptExtra : ""));
       formData.append("style", activeResults?.styleProfile?.dominantStyle || "modern");
       formData.append("room", RENOVATION_CATEGORIES.find(c => c.id === category)?.label || "room");
       formData.append("colorPalette", activeResults?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
@@ -336,12 +336,13 @@ export default function BuiltMe() {
 
   const reAnalyseWithPrompt = async () => {
     if (!renderPromptExtra.trim()) return;
-    setRenderLoading(true);
+    setIsLoading(true);
     try {
       const formData = new FormData();
       formData.append("category", category || "");
       formData.append("budget", budget || "");
-      formData.append("prompt", prompt + ". Updated requirements: " + renderPromptExtra);
+      formData.append("prompt", prompt + ". IMPORTANT UPDATES: " + renderPromptExtra);
+      if (roomPhotos.length > 0) formData.append("floorPlan", roomPhotos[0]);
 
       const response = await fetch("/api/analyse", {
         method: "POST",
@@ -351,22 +352,22 @@ export default function BuiltMe() {
       if (data.error) throw new Error(data.error);
       setResults(data.result);
 
-      // Save updated project to Supabase
+      // Save updated result to Supabase
       if (user) {
         await supabase.from("builtme_projects")
           .update({ result: data.result })
-          .eq("user_id", user.id)
+          .eq("user_id", user?.id)
           .order("created_at", { ascending: false })
           .limit(1);
       }
 
-      // Now regenerate renders with new style
+      // Regenerate render with new analysis
       await generateRenders(data.result);
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : "Failed");
+      alert(err instanceof Error ? err.message : "Failed to update design");
     }
-    setRenderLoading(false);
+    setIsLoading(false);
   };
 
   const totalCost = results?.costBreakdown?.total || 0;
@@ -1110,10 +1111,10 @@ export default function BuiltMe() {
                       <button
                         className="btn-ghost"
                         onClick={reAnalyseWithPrompt}
-                        disabled={renderLoading || !renderPromptExtra.trim()}
+                        disabled={renderLoading || isLoading || !renderPromptExtra.trim()}
                         style={{ fontSize: 14, padding: "14px 36px" }}
                       >
-                        {renderLoading ? "Updating design..." : "Update design & render →"}
+                        {renderLoading || isLoading ? "Updating design..." : "Update design & render →"}
                       </button>
                     )}
                   </div>

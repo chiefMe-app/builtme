@@ -48,11 +48,13 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    const renderPrompt = `${room} interior design renovation, ${style} style, ${colorPalette},
-    keep exact same room structure walls columns windows doors layout,
-    only change materials finishes furniture lighting decor,
-    professional architectural visualization, photorealistic, high quality,
-    Dubai apartment, ${prompt}`;
+    const renderPrompt = `Interior design renovation of this exact room.
+    IMPORTANT INSTRUCTIONS: ${prompt}.
+    Style: ${style}, Colors: ${colorPalette}, Room: ${room}.
+    Keep the exact same room layout, walls, columns, windows, doors.
+    Do not add or remove structural elements.
+    Only change: materials, finishes, cabinet colors, countertops, backsplash, lighting fixtures, decor.
+    Photorealistic, high quality, professional architectural visualization.`;
 
     const negativePrompt = `change room structure, move walls, remove windows, remove doors,
     different room layout, different room shape, people, cartoon, sketch,
