@@ -19,6 +19,7 @@ interface Project {
   result: BuiltMeResult | null;
   title: string | null;
   renders: string[] | null;
+  room_photo_url: string | null;
   created_at: string;
 }
 
@@ -60,6 +61,7 @@ export default function ProjectsPage() {
     try {
       localStorage.setItem("builtme_load_project", JSON.stringify(project.result));
       localStorage.setItem("builtme_renders", JSON.stringify(project.renders || []));
+      localStorage.setItem("builtme_room_photo", project.room_photo_url || "");
     } catch (err) {
       console.error("Failed to store project:", err);
     }

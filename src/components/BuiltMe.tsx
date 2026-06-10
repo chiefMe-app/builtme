@@ -196,7 +196,10 @@ export default function BuiltMe() {
       formData.append("image", file);
       const res = await fetch("/api/upload-photo", { method: "POST", body: formData });
       const data = await res.json();
-      if (data.url) setRoomPhotoUrl(data.url);
+      if (data.url) {
+        setRoomPhotoUrl(data.url);
+        localStorage.setItem("builtme_room_photo", data.url);
+      }
     } catch (err) {
       console.error("Photo upload error:", err);
     }

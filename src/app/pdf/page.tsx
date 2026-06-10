@@ -72,6 +72,7 @@ const GOLD = "#C4A882";
 export default function PDFPage() {
   const [results, setResults] = useState<BuiltMeResult | null>(null);
   const [renders, setRenders] = useState<string[]>([]);
+  const [roomPhoto, setRoomPhoto] = useState<string>("");
 
   useEffect(() => {
     try {
@@ -84,6 +85,8 @@ export default function PDFPage() {
         const parsed = JSON.parse(storedRenders);
         if (Array.isArray(parsed)) setRenders(parsed);
       }
+      const storedRoomPhoto = localStorage.getItem("builtme_room_photo");
+      if (storedRoomPhoto) setRoomPhoto(storedRoomPhoto);
     } catch (err) {
       console.error("Failed to load BuiltMe data from localStorage:", err);
     }
@@ -326,6 +329,45 @@ export default function PDFPage() {
               <li key={i} style={{ fontSize: 13, lineHeight: 1.8 }}>{step}</li>
             ))}
           </ol>
+        </section>
+      )}
+
+      {/* Before / After */}
+      {(roomPhoto || renders.length > 0) && (
+        <section style={{ marginBottom: 24, breakInside: "avoid" }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: GOLD, borderBottom: "1px solid #EAE4D9", paddingBottom: 6, marginBottom: 10 }}>
+            Before &amp; After
+          </h2>
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              {roomPhoto ? (
+                <img
+                  src={roomPhoto}
+                  alt="Before"
+                  style={{ width: "100%", height: 260, objectFit: "cover", borderRadius: 4, border: "1px solid #EAE4D9", display: "block" }}
+                />
+              ) : (
+                <div style={{ width: "100%", height: 260, borderRadius: 4, border: "1px solid #EAE4D9", display: "flex", alignItems: "center", justifyContent: "center", color: "#AAA", fontSize: 12 }}>
+                  No photo uploaded
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: "#AAA", textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 6, textAlign: "center" }}>Before</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              {renders.length > 0 ? (
+                <img
+                  src={renders[renders.length - 1]}
+                  alt="After"
+                  style={{ width: "100%", height: 260, objectFit: "cover", borderRadius: 4, border: "1px solid #EAE4D9", display: "block" }}
+                />
+              ) : (
+                <div style={{ width: "100%", height: 260, borderRadius: 4, border: "1px solid #EAE4D9", display: "flex", alignItems: "center", justifyContent: "center", color: "#AAA", fontSize: 12 }}>
+                  No render generated
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: GOLD, textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 6, textAlign: "center" }}>After</div>
+            </div>
+          </div>
         </section>
       )}
     </div>
