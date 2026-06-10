@@ -204,7 +204,26 @@ export default function BuiltMe() {
       });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
-      setRenders(data.images || []);
+
+      const predictionId = data.predictionId;
+
+      // Poll for result
+      let attempts = 0;
+      while (attempts < 60) {
+        await new Promise(r => setTimeout(r, 3000));
+        const statusRes = await fetch(`/api/render-status?id=${predictionId}`);
+        const statusData = await statusRes.json();
+
+        if (statusData.status === "succeeded") {
+          setRenders(statusData.images || []);
+          break;
+        } else if (statusData.status === "failed" || statusData.error) {
+          throw new Error(statusData.error || "Render failed");
+        }
+        attempts++;
+      }
+
+      if (attempts >= 60) throw new Error("Render timed out");
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : "Render failed");
