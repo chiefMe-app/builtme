@@ -19,16 +19,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const output = await replicate.run(
-      "stability-ai/stable-diffusion-3.5-large",
+      "youzu/stable-interiors-v2",
       {
         input: {
           prompt: renderPrompt,
           negative_prompt: negativePrompt,
           width: 1024,
-          height: 768,
+          height: 1024,
           num_outputs: 2,
-          guidance_scale: 7.5,
           num_inference_steps: 30,
+          guidance_scale: 7.5,
         },
       }
     );
