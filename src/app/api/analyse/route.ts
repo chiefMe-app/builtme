@@ -139,11 +139,20 @@ export async function POST(request: NextRequest) {
 
     let result: unknown;
     try {
-      const clean = textBlock.text.replace(/```json|```/g, "").trim();
-      result = JSON.parse(clean);
+      let text = textBlock.text.trim();
+      // Remove markdown code blocks if present
+      text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      // Find first { and last } to extract JSON
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if (start === -1 || end === -1) {
+        throw new Error('No JSON object found in response');
+      }
+      text = text.slice(start, end + 1);
+      result = JSON.parse(text);
     } catch {
       return NextResponse.json(
-        { error: "Failed to parse Claude response as JSON" },
+        { error: "Failed to parse Claude response as JSON", raw: textBlock.text.slice(0, 500) },
         { status: 502 },
       );
     }
