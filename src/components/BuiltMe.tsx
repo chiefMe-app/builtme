@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import jsPDF from "jspdf";
 
 interface ColorSwatch {
   name: string;
@@ -232,6 +233,114 @@ export default function BuiltMe() {
       alert(err instanceof Error ? err.message : "Render failed");
     }
     setRenderLoading(false);
+  };
+
+  const downloadPDF = () => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let y = 20;
+
+    // Header
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    doc.text("BuiltMe — Renovation Package", 20, y);
+    y += 10;
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "normal");
+    doc.text(results?.designConcept?.title || "Your Design", 20, y);
+    y += 8;
+
+    doc.setFontSize(11);
+    doc.text(`Total Estimate: AED ${(results?.costBreakdown?.total || 0).toLocaleString()}`, 20, y);
+    y += 15;
+
+    // Design Concept
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.text("Design Concept", 20, y);
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    const conceptLines = doc.splitTextToSize(results?.designConcept?.description || "", pageWidth - 40);
+    doc.text(conceptLines, 20, y);
+    y += conceptLines.length * 5 + 10;
+
+    // Style
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.text("Style Profile", 20, y);
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Style: ${results?.styleProfile?.dominantStyle || ""}`, 20, y);
+    y += 6;
+    doc.text(`Keywords: ${results?.styleProfile?.moodKeywords?.join(", ") || ""}`, 20, y);
+    y += 15;
+
+    // Materials
+    if (y > 240) { doc.addPage(); y = 20; }
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.text("Materials & Cost", 20, y);
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    results?.materials?.forEach((m: MaterialItem) => {
+      if (y > 260) { doc.addPage(); y = 20; }
+      doc.text(`• ${m.zone}: ${m.item} — ${m.totalCost}`, 20, y);
+      y += 6;
+      doc.text(`  ${m.supplier}, ${m.supplierArea}`, 24, y);
+      y += 8;
+    });
+    y += 5;
+
+    // Cost Breakdown
+    if (y > 240) { doc.addPage(); y = 20; }
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.text("Cost Breakdown", 20, y);
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Materials: AED ${(results?.costBreakdown?.materials || 0).toLocaleString()}`, 20, y); y += 6;
+    doc.text(`Furniture: AED ${(results?.costBreakdown?.furniture || 0).toLocaleString()}`, 20, y); y += 6;
+    doc.text(`Labour: AED ${(results?.costBreakdown?.labour || 0).toLocaleString()}`, 20, y); y += 6;
+    doc.text(`Contingency: AED ${(results?.costBreakdown?.contingency || 0).toLocaleString()}`, 20, y); y += 6;
+    doc.setFont("helvetica", "bold");
+    doc.text(`TOTAL: AED ${(results?.costBreakdown?.total || 0).toLocaleString()}`, 20, y); y += 15;
+
+    // Furniture
+    if (y > 240) { doc.addPage(); y = 20; }
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.text("Furniture", 20, y);
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    results?.furniture?.forEach((f: FurnitureItem) => {
+      if (y > 260) { doc.addPage(); y = 20; }
+      doc.text(`• ${f.item} — ${f.brand} ${f.model}: AED ${(f.priceAED || 0).toLocaleString()}`, 20, y);
+      y += 8;
+    });
+
+    // Next Steps
+    if (y > 240) { doc.addPage(); y = 20; }
+    y += 5;
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.text("Next Steps", 20, y);
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    results?.nextSteps?.forEach((step: string, i: number) => {
+      if (y > 260) { doc.addPage(); y = 20; }
+      const lines = doc.splitTextToSize(`${i + 1}. ${step}`, pageWidth - 40);
+      doc.text(lines, 20, y);
+      y += lines.length * 5 + 4;
+    });
+
+    doc.save(`builtme-${results?.designConcept?.title?.replace(/\s+/g, "-") || "renovation"}.pdf`);
   };
 
   const totalCost = results?.costBreakdown?.total || 0;
@@ -646,7 +755,7 @@ export default function BuiltMe() {
                 AED {(results.costBreakdown?.total || 0).toLocaleString()}
               </div>
               <button className="btn-ghost" onClick={() => setScreen("configure")}>New project</button>
-              <button className="btn-primary" style={{ padding: "10px 20px", fontSize: 13 }}>Download PDF</button>
+              <button className="btn-primary" onClick={downloadPDF} style={{ padding: "10px 20px", fontSize: 13 }}>Download PDF</button>
             </div>
           </div>
 
