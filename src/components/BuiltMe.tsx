@@ -173,10 +173,9 @@ export default function BuiltMe() {
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to analyse");
-      }
-      setResults(data.result as BuiltMeResult);
+      if (data.error) throw new Error(data.error);
+      const parsed = data.result as BuiltMeResult;
+      setResults(parsed);
     } catch (err) {
       console.error(err);
       setResults({ error: true });

@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
 
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: 4000,
       messages: [{ role: "user", content }],
     });
 
