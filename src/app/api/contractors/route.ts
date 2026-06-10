@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 2000,
+      max_tokens: 1500,
       messages: [{
         role: "user",
         content: `You are a Dubai construction and renovation expert. Based on this renovation project, identify what contractor types are needed and provide Dubai-specific guidance.
@@ -51,8 +51,19 @@ Return ONLY valid JSON (no markdown):
       }]
     });
 
-    const text = response.content.find(b => b.type === "text")?.text || "";
-    const clean = text.replace(/```json|```/g, "").trim();
+    const text = response.content.find((b) => b.type === "text")?.text || "";
+    console.log("Contractors raw response:", text.slice(0, 500));
+
+    let clean = text.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+
+    // Extract JSON object
+    const start = clean.indexOf("{");
+    const end = clean.lastIndexOf("}");
+    if (start === -1 || end === -1) {
+      return NextResponse.json({ error: "No JSON in response", raw: text.slice(0, 200) }, { status: 502 });
+    }
+    clean = clean.slice(start, end + 1);
+
     const contractors = JSON.parse(clean);
 
     return NextResponse.json({ contractors });
