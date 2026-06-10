@@ -48,39 +48,74 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    // Generate a mask covering only the elements to redesign (cabinets, countertops,
+    // Try a mask covering only the elements to redesign (cabinets, countertops,
     // backsplash, lighting). Floor, ceiling, walls, windows and doors stay outside the mask.
-    const maskOutput = await replicate.run(
-      "schananas/grounded_sam:ee871c19efb1941f55f66a3d7d960428c8a5afcb77449547fe8e5a3ab9ebc21c",
-      {
+    let maskUrl: string | null = null;
+    try {
+      const maskOutput = await replicate.run(
+        "schananas/grounded_sam:ee871c19efb1941f55f66a3d7d960428c8a5afcb77449547fe8e5a3ab9ebc21c",
+        {
+          input: {
+            image: imageUrl,
+            mask_prompt: "cabinets, countertop, backsplash, kitchen island, shelves, lighting fixtures",
+            negative_mask_prompt: "floor, ceiling, walls, window, door",
+            adjustment_factor: 0,
+          },
+        }
+      );
+      maskUrl = (Array.isArray(maskOutput) ? maskOutput[0] : maskOutput) as string;
+    } catch (maskErr) {
+      console.error("Mask generation failed, falling back to depth-based render:", maskErr);
+    }
+
+    let prediction;
+    if (maskUrl) {
+      const renderPrompt = `Photorealistic interior design renovation.
+      Redesign the cabinets, countertop, backsplash tiles, and lighting fixtures.
+      Style direction: ${style}. Colors: ${colorPalette}. ${prompt}.
+      Seamlessly blend with the existing floor, ceiling, walls and room layout.
+      High quality, professional architectural visualization, Dubai apartment.`;
+
+      // Use FLUX Fill Pro to inpaint only the masked area
+      prediction = await replicate.predictions.create({
+        model: "black-forest-labs/flux-fill-pro",
         input: {
           image: imageUrl,
-          mask_prompt: "cabinets, countertop, backsplash, kitchen island, shelves, lighting fixtures",
-          negative_mask_prompt: "floor, ceiling, walls, window, door",
-          adjustment_factor: 0,
+          mask: maskUrl,
+          prompt: renderPrompt,
+          steps: 50,
+          guidance: 60,
+          output_format: "jpg",
         },
-      }
-    );
-    const maskUrl = (Array.isArray(maskOutput) ? maskOutput[0] : maskOutput) as string;
+      });
+    } else {
+      const renderPrompt = `Interior design renovation of this exact room.
+      CRITICAL - DO NOT CHANGE: the floor tiles/flooring material, the ceiling height and ceiling material, suspended ceiling tiles if present, room dimensions, walls position, windows position, doors position.
+      CHANGE ONLY: cabinet colors and style, countertop material, backsplash tiles, lighting fixtures, decorative items, plants.
+      Style direction: ${style}. Colors: ${colorPalette}. ${prompt}.
+      Photorealistic, high quality, professional architectural visualization, Dubai apartment.`;
 
-    const renderPrompt = `Photorealistic interior design renovation.
-    Redesign the cabinets, countertop, backsplash tiles, and lighting fixtures.
-    Style direction: ${style}. Colors: ${colorPalette}. ${prompt}.
-    Seamlessly blend with the existing floor, ceiling, walls and room layout.
-    High quality, professional architectural visualization, Dubai apartment.`;
+      const negativePrompt = `change room structure, move walls, remove windows, remove doors,
+      different room layout, different room shape, different floor tiles, changed flooring,
+      new floor pattern, different floor color, replaced floor, different ceiling,
+      people, cartoon, sketch, unrealistic proportions, blurry, dark, ugly`;
 
-    // Use FLUX Fill Pro to inpaint only the masked area
-    const prediction = await replicate.predictions.create({
-      model: "black-forest-labs/flux-fill-pro",
-      input: {
-        image: imageUrl,
-        mask: maskUrl,
-        prompt: renderPrompt,
-        steps: 50,
-        guidance: 60,
-        output_format: "jpg",
-      },
-    });
+      // Fall back to FLUX Depth Pro for structure preservation
+      prediction = await replicate.predictions.create({
+        model: "black-forest-labs/flux-depth-pro",
+        input: {
+          control_image: imageUrl,
+          prompt: renderPrompt,
+          negative_prompt: negativePrompt,
+          num_outputs: 1,
+          num_inference_steps: 50,
+          guidance_scale: 10,
+          prompt_strength: 0.55,
+          output_format: "jpg",
+          output_quality: 90,
+        },
+      });
+    }
 
     return NextResponse.json({ predictionId: prediction.id });
   } catch (err) {
