@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
         num_outputs: 1,
         num_inference_steps: 28,
         guidance_scale: 3.5,
-        output_format: "webp",
+        output_format: "jpg",
         output_quality: 90,
       },
     });
