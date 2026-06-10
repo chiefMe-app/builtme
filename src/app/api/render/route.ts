@@ -41,8 +41,6 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData();
     const prompt = formData.get("prompt") as string;
-    const style = formData.get("style") as string;
-    const colorPalette = formData.get("colorPalette") as string;
     const imageFile = formData.get("image") as File | null;
 
     if (!imageFile || imageFile.size === 0) {
@@ -96,11 +94,11 @@ export async function POST(req: NextRequest) {
     let prediction;
     if (maskUrl) {
       const mask = maskUrl;
-      const renderPrompt = `Photorealistic interior design renovation.
-      Redesign the cabinets, countertop, backsplash tiles, and lighting fixtures.
-      Style direction: ${style}. Colors: ${colorPalette}. ${prompt}.
-      Seamlessly blend with the existing floor, ceiling, walls and room layout.
-      High quality, professional architectural visualization, Dubai apartment.`;
+      const renderPrompt = `Interior design renovation of this exact room.
+      PRESERVE: floor, ceiling, room structure, appliance positions.
+      CHANGE ONLY: cabinets, countertop, backsplash on cooking wall only, lighting, decor.
+      DO NOT tile the floor or non-cooking walls.
+      ${prompt}`;
 
       // Use FLUX Fill Pro to inpaint only the masked area
       prediction = await withRetry(() =>
@@ -112,16 +110,17 @@ export async function POST(req: NextRequest) {
             prompt: renderPrompt,
             steps: 50,
             guidance: 60,
+            aspect_ratio: "4:3",
             output_format: "jpg",
           },
         })
       );
     } else {
       const renderPrompt = `Interior design renovation of this exact room.
-      CRITICAL - DO NOT CHANGE: the floor tiles/flooring material, the ceiling height and ceiling material, suspended ceiling tiles if present, room dimensions, walls position, windows position, doors position.
-      CHANGE ONLY: cabinet colors and style, countertop material, backsplash tiles, lighting fixtures, decorative items, plants.
-      Style direction: ${style}. Colors: ${colorPalette}. ${prompt}.
-      Photorealistic, high quality, professional architectural visualization, Dubai apartment.`;
+      PRESERVE: floor, ceiling, room structure, appliance positions.
+      CHANGE ONLY: cabinets, countertop, backsplash on cooking wall only, lighting, decor.
+      DO NOT tile the floor or non-cooking walls.
+      ${prompt}`;
 
       const negativePrompt = `change room structure, move walls, remove windows, remove doors,
       different room layout, different room shape, different floor tiles, changed flooring,
@@ -140,6 +139,7 @@ export async function POST(req: NextRequest) {
             num_inference_steps: 50,
             guidance_scale: 10,
             prompt_strength: 0.55,
+            aspect_ratio: "4:3",
             output_format: "jpg",
             output_quality: 90,
           },
