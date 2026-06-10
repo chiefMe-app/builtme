@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
 
@@ -118,6 +119,7 @@ const AGENT_STEPS = [
 ];
 
 export default function BuiltMe() {
+  const router = useRouter();
   const [screen, setScreen] = useState<Screen>("landing");
   const [category, setCategory] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
@@ -140,14 +142,20 @@ export default function BuiltMe() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      if (!session) {
+        router.push("/auth");
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (!session) {
+        router.push("/auth");
+      }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [router]);
 
   // If a project was opened from "My Projects", load it straight into the results screen
   useEffect(() => {
