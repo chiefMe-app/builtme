@@ -280,7 +280,21 @@ export default function BuiltMe() {
     try {
       const formData = new FormData();
       formData.append("image", photoToUse);
-      formData.append("prompt", prompt + (renderPromptExtra ? ". User instructions: " + renderPromptExtra : ""));
+
+      const materialsSummary = activeResults?.materials
+        ?.map((m: { item: string; specification: string }) => `${m.item}: ${m.specification}`)
+        .join(", ") || "";
+
+      const colorSummary = activeResults?.styleProfile?.colorPalette
+        ?.map((c: { name: string; hex: string }) => `${c.name} ${c.hex}`)
+        .join(", ") || "";
+
+      const fullPrompt = `${prompt}.
+Use these exact materials: ${materialsSummary}.
+Color palette: ${colorSummary}.
+${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
+
+      formData.append("prompt", fullPrompt);
       formData.append("style", activeResults?.styleProfile?.dominantStyle || "modern");
       formData.append("room", RENOVATION_CATEGORIES.find(c => c.id === category)?.label || "room");
       formData.append("colorPalette", activeResults?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
