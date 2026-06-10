@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useRef } from "react";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 
 interface ColorSwatch {
   name: string;
@@ -180,6 +178,7 @@ export default function BuiltMe() {
       if (data.error) throw new Error(data.error);
       const parsed = data.result as BuiltMeResult;
       setResults(parsed);
+      localStorage.setItem("builtme_results", JSON.stringify(parsed));
     } catch (err) {
       console.error(err);
       setResults({ error: true });
@@ -221,6 +220,7 @@ export default function BuiltMe() {
           const imagesArray = Array.isArray(output) ? output :
             (output && typeof output === "object") ? Object.values(output) : [];
           setRenders(imagesArray as string[]);
+          localStorage.setItem("builtme_renders", JSON.stringify(imagesArray));
           break;
         } else if (statusData.status === "failed" || statusData.error) {
           throw new Error(statusData.error || "Render failed");
@@ -234,47 +234,6 @@ export default function BuiltMe() {
       alert(err instanceof Error ? err.message : "Render failed");
     }
     setRenderLoading(false);
-  };
-
-  const downloadPDF = async () => {
-    const element = document.getElementById("results-container");
-    if (!element) return;
-
-    try {
-      // Temporarily show all tabs content for PDF
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: "#F7F4EF",
-        logging: false,
-      });
-
-      const imgData = canvas.toDataURL("image/jpeg", 0.95);
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * pageWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-
-      pdf.save(`builtme-${results?.designConcept?.title?.replace(/\s+/g, "-") || "renovation"}.pdf`);
-    } catch (err) {
-      console.error("PDF error:", err);
-    }
   };
 
   const totalCost = results?.costBreakdown?.total || 0;
@@ -689,7 +648,7 @@ export default function BuiltMe() {
                 AED {(results.costBreakdown?.total || 0).toLocaleString()}
               </div>
               <button className="btn-ghost" onClick={() => setScreen("configure")}>New project</button>
-              <button className="btn-primary" onClick={downloadPDF} style={{ padding: "10px 20px", fontSize: 13 }}>Download PDF</button>
+              <button className="btn-primary" onClick={() => window.open("/pdf", "_blank")} style={{ padding: "10px 20px", fontSize: 13 }}>Download PDF</button>
             </div>
           </div>
 
