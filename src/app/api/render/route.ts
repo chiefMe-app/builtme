@@ -9,6 +9,29 @@ const replicate = new Replicate({
   useFileOutput: false,
 });
 
+// Retry on transient 429 (rate limit) responses from Replicate
+async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const response = (err as { response?: Response }).response;
+      if (response?.status === 429 && attempt < retries) {
+        let retryAfter = 5;
+        try {
+          const body = await response.clone().json();
+          if (typeof body.retry_after === "number") retryAfter = body.retry_after;
+        } catch {
+          // ignore, use default retryAfter
+        }
+        await new Promise((r) => setTimeout(r, (retryAfter + 1) * 1000));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = createClient(
@@ -52,16 +75,18 @@ export async function POST(req: NextRequest) {
     // backsplash, lighting). Floor, ceiling, walls, windows and doors stay outside the mask.
     let maskUrl: string | null = null;
     try {
-      const maskOutput = await replicate.run(
-        "schananas/grounded_sam:ee871c19efb1941f55f66a3d7d960428c8a5afcb77449547fe8e5a3ab9ebc21c",
-        {
-          input: {
-            image: imageUrl,
-            mask_prompt: "cabinets, countertop, backsplash, kitchen island, shelves, lighting fixtures",
-            negative_mask_prompt: "floor, ceiling, walls, window, door",
-            adjustment_factor: 0,
-          },
-        }
+      const maskOutput = await withRetry(() =>
+        replicate.run(
+          "schananas/grounded_sam:ee871c19efb1941f55f66a3d7d960428c8a5afcb77449547fe8e5a3ab9ebc21c",
+          {
+            input: {
+              image: imageUrl,
+              mask_prompt: "cabinets, countertop, backsplash, kitchen island, shelves, lighting fixtures",
+              negative_mask_prompt: "floor, ceiling, walls, window, door",
+              adjustment_factor: 0,
+            },
+          }
+        )
       );
       maskUrl = (Array.isArray(maskOutput) ? maskOutput[0] : maskOutput) as string;
     } catch (maskErr) {
@@ -70,6 +95,7 @@ export async function POST(req: NextRequest) {
 
     let prediction;
     if (maskUrl) {
+      const mask = maskUrl;
       const renderPrompt = `Photorealistic interior design renovation.
       Redesign the cabinets, countertop, backsplash tiles, and lighting fixtures.
       Style direction: ${style}. Colors: ${colorPalette}. ${prompt}.
@@ -77,17 +103,19 @@ export async function POST(req: NextRequest) {
       High quality, professional architectural visualization, Dubai apartment.`;
 
       // Use FLUX Fill Pro to inpaint only the masked area
-      prediction = await replicate.predictions.create({
-        model: "black-forest-labs/flux-fill-pro",
-        input: {
-          image: imageUrl,
-          mask: maskUrl,
-          prompt: renderPrompt,
-          steps: 50,
-          guidance: 60,
-          output_format: "jpg",
-        },
-      });
+      prediction = await withRetry(() =>
+        replicate.predictions.create({
+          model: "black-forest-labs/flux-fill-pro",
+          input: {
+            image: imageUrl,
+            mask,
+            prompt: renderPrompt,
+            steps: 50,
+            guidance: 60,
+            output_format: "jpg",
+          },
+        })
+      );
     } else {
       const renderPrompt = `Interior design renovation of this exact room.
       CRITICAL - DO NOT CHANGE: the floor tiles/flooring material, the ceiling height and ceiling material, suspended ceiling tiles if present, room dimensions, walls position, windows position, doors position.
@@ -101,20 +129,22 @@ export async function POST(req: NextRequest) {
       people, cartoon, sketch, unrealistic proportions, blurry, dark, ugly`;
 
       // Fall back to FLUX Depth Pro for structure preservation
-      prediction = await replicate.predictions.create({
-        model: "black-forest-labs/flux-depth-pro",
-        input: {
-          control_image: imageUrl,
-          prompt: renderPrompt,
-          negative_prompt: negativePrompt,
-          num_outputs: 1,
-          num_inference_steps: 50,
-          guidance_scale: 10,
-          prompt_strength: 0.55,
-          output_format: "jpg",
-          output_quality: 90,
-        },
-      });
+      prediction = await withRetry(() =>
+        replicate.predictions.create({
+          model: "black-forest-labs/flux-depth-pro",
+          input: {
+            control_image: imageUrl,
+            prompt: renderPrompt,
+            negative_prompt: negativePrompt,
+            num_outputs: 1,
+            num_inference_steps: 50,
+            guidance_scale: 10,
+            prompt_strength: 0.55,
+            output_format: "jpg",
+            output_quality: 90,
+          },
+        })
+      );
     }
 
     return NextResponse.json({ predictionId: prediction.id });
