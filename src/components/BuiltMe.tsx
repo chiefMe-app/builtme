@@ -309,12 +309,20 @@ export default function BuiltMe() {
           localStorage.setItem("builtme_renders", JSON.stringify(imagesArray));
 
           try {
-            await supabase
+            const { data: latestProject } = await supabase
               .from("builtme_projects")
-              .update({ renders: imagesArray })
+              .select("id")
               .eq("user_id", user?.id)
               .order("created_at", { ascending: false })
-              .limit(1);
+              .limit(1)
+              .single();
+
+            if (latestProject) {
+              await supabase
+                .from("builtme_projects")
+                .update({ renders: imagesArray })
+                .eq("id", latestProject.id);
+            }
           } catch (dbErr) {
             console.error("Failed to update project renders:", dbErr);
           }
@@ -354,11 +362,19 @@ export default function BuiltMe() {
 
       // Save updated result to Supabase
       if (user) {
-        await supabase.from("builtme_projects")
-          .update({ result: data.result })
+        const { data: latestProject } = await supabase
+          .from("builtme_projects")
+          .select("id")
           .eq("user_id", user?.id)
           .order("created_at", { ascending: false })
-          .limit(1);
+          .limit(1)
+          .single();
+
+        if (latestProject) {
+          await supabase.from("builtme_projects")
+            .update({ result: data.result })
+            .eq("id", latestProject.id);
+        }
       }
 
       // Regenerate render with new analysis
