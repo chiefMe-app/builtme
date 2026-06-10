@@ -29,37 +29,38 @@ export default async function RootLayout({
   const headersList = await headers();
   const pathname = headersList.get("x-pathname") || "/";
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options),
-            );
-          } catch {
-            // setAll called from a Server Component - safe to ignore
-            // since middleware refreshes the session.
-          }
+  // Skip auth check for auth page and API routes
+  const skipAuth = pathname === "/auth" ||
+                   pathname.startsWith("/auth") ||
+                   pathname.startsWith("/api") ||
+                   pathname.startsWith("/_next") ||
+                   pathname === "/pdf";
+
+  if (!skipAuth) {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options),
+              );
+            } catch {}
+          },
         },
       },
-    },
-  );
+    );
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    const { data: { session } } = await supabase.auth.getSession();
 
-  const isAuthPage = pathname === "/auth" || pathname.startsWith("/auth");
-  const isPublicPath = isAuthPage || pathname.startsWith("/api");
-
-  if (!session && !isPublicPath) {
-    redirect("/auth");
+    if (!session) {
+      redirect("/auth");
+    }
   }
 
   return (
