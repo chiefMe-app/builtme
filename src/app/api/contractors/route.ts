@@ -7,46 +7,38 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(req: NextRequest) {
   try {
-    const { scope, materials, designConcept, category, prompt } = await req.json();
+    const { scope, designConcept, category, prompt } = await req.json();
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 1500,
+      max_tokens: 2500,
       messages: [{
         role: "user",
-        content: `You are a Dubai construction and renovation expert. Based on this renovation project, identify what contractor types are needed and provide Dubai-specific guidance.
+        content: `You are a Dubai renovation expert. Identify contractor types needed for this project. Be CONCISE.
 
 Project: ${designConcept}
 Category: ${category}
 Vision: ${prompt}
-Materials: ${JSON.stringify(materials?.slice(0, 3))}
 
-Return ONLY valid JSON (no markdown):
+Return ONLY valid JSON, max 2 contractor types, keep all text fields under 100 characters:
 {
   "types": [
     {
-      "type": "contractor type name",
+      "type": "short name",
       "icon": "emoji",
-      "required": true/false,
-      "description": "what this contractor will do on this specific project",
-      "relevantScope": "specific tasks for this project in one line",
-      "estimatedCost": "AED X,XXX – X,XXX",
+      "required": true,
+      "description": "max 80 chars",
+      "relevantScope": "max 60 chars",
+      "estimatedCost": "AED X,XXX–X,XXX",
       "duration": "X–X days",
-      "checkList": ["Dubai trade license", "Insurance", "Portfolio", "Fixed price quote", "Payment terms"],
+      "checkList": ["item1", "item2", "item3"],
       "platforms": [
         {"name": "ServiceMarket", "url": "https://www.servicemarket.com/en/"},
-        {"name": "Bayut Home Services", "url": "https://homes.bayut.com/"},
-        {"name": "Justmop", "url": "https://www.justmop.com/"}
+        {"name": "Bayut Homes", "url": "https://homes.bayut.com/"}
       ]
     }
   ],
-  "questionsToAsk": [
-    "Do you have a valid Dubai Municipality trade license?",
-    "Can you provide a fixed-price quote before starting?",
-    "What is your payment schedule?",
-    "Do you have liability insurance?",
-    "Can you share 3 recent similar projects in Dubai?"
-  ]
+  "questionsToAsk": ["question1", "question2", "question3"]
 }`
       }]
     });
