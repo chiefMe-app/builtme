@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const output = await replicate.run(
-      "youzu/stable-interiors-v2",
+      "youzu/stable-interiors-v2:4836eb257a4fb8b87bac9eacbef9292ee8e1a497398ab96207067403a4be2daf",
       {
         input: {
           prompt: renderPrompt,
