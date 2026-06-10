@@ -144,20 +144,22 @@ export default function BuiltMe() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (!session) {
-        router.push("/auth");
-      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (!session) {
-        router.push("/auth");
-      }
     });
 
     return () => subscription.unsubscribe();
-  }, [router]);
+  }, []);
+
+  const handleStart = () => {
+    if (!user) {
+      router.push("/auth");
+      return;
+    }
+    setScreen("configure");
+  };
 
   // If a project was opened from "My Projects", load it straight into the results screen
   useEffect(() => {
@@ -558,7 +560,7 @@ export default function BuiltMe() {
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.15em" }}>DUBAI</div>
               <a href="/projects" style={{ fontSize: 13, color: "#666", textDecoration: "none", fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em" }}>MY PROJECTS</a>
-              <button className="btn-primary" onClick={() => setScreen("configure")} style={{ padding: "10px 24px", fontSize: 13 }}>Start your renovation</button>
+              <button className="btn-primary" onClick={handleStart} style={{ padding: "10px 24px", fontSize: 13 }}>Start your renovation</button>
               {user && (
                 <button
                   className="btn-ghost"
@@ -587,7 +589,7 @@ export default function BuiltMe() {
                 Upload your floor plan and inspiration images. Tell us what you want. Our AI builds your complete renovation package — materials, costs, suppliers, and furniture links.
               </p>
               <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-                <button className="btn-primary" onClick={() => setScreen("configure")} style={{ fontSize: 14, padding: "16px 40px" }}>
+                <button className="btn-primary" onClick={handleStart} style={{ fontSize: 14, padding: "16px 40px" }}>
                   Start for free →
                 </button>
                 <button className="btn-ghost" style={{ fontSize: 14, padding: "16px 24px" }}>
