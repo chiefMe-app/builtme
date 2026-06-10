@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
+export const maxDuration = 60;
+
 const MODEL = "claude-sonnet-4-6";
 
 async function fileToBase64(file: File): Promise<{ data: string; mediaType: string }> {
@@ -160,7 +162,7 @@ export async function POST(request: NextRequest) {
 
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: 2000,
       messages: [{ role: "user", content }],
     });
 
