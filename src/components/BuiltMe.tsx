@@ -121,6 +121,28 @@ const AGENT_STEPS = [
   { id: "package", label: "Compiling your renovation package", icon: "📦" },
 ];
 
+const getFurnitureImage = (item: string) => {
+  const term = item.toLowerCase();
+  if (term.includes("pendant") || term.includes("light") || term.includes("lamp"))
+    return "https://images.unsplash.com/photo-1524484485831-a92ffc0de03f?w=120&q=80";
+  if (term.includes("stool") || term.includes("chair"))
+    return "https://images.unsplash.com/photo-1592078615290-033ee584e267?w=120&q=80";
+  if (term.includes("shelf") || term.includes("shelv"))
+    return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
+  if (term.includes("rug") || term.includes("carpet"))
+    return "https://images.unsplash.com/photo-1600166898405-da9535204843?w=120&q=80";
+  if (term.includes("plant") || term.includes("pot"))
+    return "https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=120&q=80";
+  if (term.includes("canister") || term.includes("jar") || term.includes("storage"))
+    return "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=120&q=80";
+  if (term.includes("mirror"))
+    return "https://images.unsplash.com/photo-1618219908412-a29a1bb7b86e?w=120&q=80";
+  if (term.includes("curtain") || term.includes("blind"))
+    return "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=120&q=80";
+  // default interior
+  return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
+};
+
 export default function BuiltMe() {
   const router = useRouter();
   const [screen, setScreen] = useState<Screen>("landing");
@@ -1090,7 +1112,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                       <div key={i} className="card" style={{ padding: 20 }}>
                         <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginBottom: 12 }}>
                           <img
-                            src={`https://source.unsplash.com/120x120/?${encodeURIComponent(item.imageSearchTerm || item.item)}`}
+                            src={getFurnitureImage(item.item)}
                             alt={item.item}
                             style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 4, flexShrink: 0 }}
                           />
