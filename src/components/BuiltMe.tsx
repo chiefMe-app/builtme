@@ -129,8 +129,10 @@ export default function BuiltMe() {
   const [isLoading, setIsLoading] = useState(false);
   const [renders, setRenders] = useState<string[]>([]);
   const [renderLoading, setRenderLoading] = useState(false);
+  const [roomPhoto, setRoomPhoto] = useState<File | null>(null);
   const floorPlanRef = useRef<HTMLInputElement>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
+  const roomPhotoRef = useRef<HTMLInputElement>(null);
 
   const handleFloorPlan = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -186,24 +188,26 @@ export default function BuiltMe() {
   };
 
   const generateRenders = async () => {
+    if (!roomPhoto) return;
     setRenderLoading(true);
     try {
+      const formData = new FormData();
+      formData.append("image", roomPhoto);
+      formData.append("prompt", prompt);
+      formData.append("style", results?.styleProfile?.dominantStyle || "modern");
+      formData.append("room", RENOVATION_CATEGORIES.find(c => c.id === category)?.label || "room");
+      formData.append("colorPalette", results?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
+
       const response = await fetch("/api/render", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: prompt,
-          style: results?.styleProfile?.dominantStyle,
-          room: RENOVATION_CATEGORIES.find(c => c.id === category)?.label,
-          colorPalette: results?.styleProfile?.colorPalette
-            ?.map((c: { name: string }) => c.name)
-            .join(", "),
-        }),
+        body: formData,
       });
       const data = await response.json();
+      if (data.error) throw new Error(data.error);
       setRenders(data.images || []);
     } catch (err) {
       console.error(err);
+      alert(err instanceof Error ? err.message : "Render failed");
     }
     setRenderLoading(false);
   };
@@ -862,8 +866,33 @@ export default function BuiltMe() {
                   <div style={{ textAlign: "center", padding: "60px 0" }}>
                     <div style={{ fontSize: 48, marginBottom: 16 }}>🎨</div>
                     <div className="serif" style={{ fontSize: 24, marginBottom: 8 }}>Generate AI Renders</div>
-                    <p style={{ color: "#888", marginBottom: 24, fontSize: 14 }}>See how your space will look after renovation</p>
-                    <button className="btn-primary" onClick={generateRenders} disabled={renderLoading} style={{ fontSize: 14, padding: "14px 36px" }}>
+                    <p style={{ color: "#888", marginBottom: 24, fontSize: 14 }}>Upload a photo of your current room to see the AI transformation</p>
+
+                    <div
+                      style={{ border: "2px dashed #D4C9B8", borderRadius: 4, padding: 24, marginBottom: 24, cursor: "pointer", maxWidth: 400, margin: "0 auto 24px", background: roomPhoto ? "#FAF8F5" : "#FFF" }}
+                      onClick={() => roomPhotoRef.current?.click()}
+                    >
+                      <input ref={roomPhotoRef} type="file" accept="image/*" onChange={(e) => setRoomPhoto(e.target.files?.[0] || null)} style={{ display: "none" }} />
+                      {roomPhoto ? (
+                        <div>
+                          <img src={URL.createObjectURL(roomPhoto)} alt="Room" style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 4, marginBottom: 8 }} />
+                          <div style={{ fontSize: 12, color: "#AAA" }}>Click to change photo</div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ fontSize: 32, marginBottom: 8 }}>📷</div>
+                          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload your current room photo</div>
+                          <div style={{ fontSize: 12, color: "#AAA" }}>JPG, PNG — any angle</div>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      className="btn-primary"
+                      onClick={generateRenders}
+                      disabled={renderLoading || !roomPhoto}
+                      style={{ fontSize: 14, padding: "14px 36px" }}
+                    >
                       {renderLoading ? "Generating renders..." : "Generate renders →"}
                     </button>
                   </div>
