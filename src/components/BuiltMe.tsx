@@ -303,10 +303,31 @@ export default function BuiltMe() {
 
         if (statusData.status === "succeeded") {
           const output = statusData.images;
-          const imagesArray = Array.isArray(output) ? output :
+          const tempUrls = Array.isArray(output) ? output :
             (output && typeof output === "object") ? Object.values(output) : [];
-          setRenders(imagesArray as string[]);
-          localStorage.setItem("builtme_renders", JSON.stringify(imagesArray));
+
+          // Upload renders to Supabase Storage for permanent URLs
+          const permanentUrls: string[] = [];
+          for (const tempUrl of tempUrls as string[]) {
+            try {
+              const uploadRes = await fetch("/api/save-render", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url: tempUrl }),
+              });
+              const uploadData = await uploadRes.json();
+              if (uploadData.permanentUrl) {
+                permanentUrls.push(uploadData.permanentUrl);
+              } else {
+                permanentUrls.push(tempUrl); // fallback to temp URL
+              }
+            } catch {
+              permanentUrls.push(tempUrl); // fallback
+            }
+          }
+
+          setRenders(permanentUrls);
+          localStorage.setItem("builtme_renders", JSON.stringify(permanentUrls));
 
           try {
             const { data: latestProject } = await supabase
@@ -320,7 +341,7 @@ export default function BuiltMe() {
             if (latestProject) {
               await supabase
                 .from("builtme_projects")
-                .update({ renders: imagesArray })
+                .update({ renders: permanentUrls })
                 .eq("id", latestProject.id);
             }
           } catch (dbErr) {
