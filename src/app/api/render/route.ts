@@ -1,6 +1,6 @@
-import Replicate from "replicate";
-import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import Replicate from "replicate";
 
 export const maxDuration = 300;
 
@@ -22,16 +22,14 @@ export async function POST(req: NextRequest) {
     const colorPalette = formData.get("colorPalette") as string;
     const imageFile = formData.get("image") as File | null;
 
-    const renderPrompt = `${room} interior design, ${style} style, ${colorPalette}, professional architectural visualization, realistic lighting, high quality, photorealistic, Dubai apartment, ${prompt}`;
-    const negativePrompt = `people, furniture distortion, unrealistic, cartoon, sketch, dark, cluttered, ugly, deformed`;
-
     if (!imageFile || imageFile.size === 0) {
       return NextResponse.json({ error: "Please upload a photo of your room" }, { status: 400 });
     }
 
+    // Upload to Supabase Storage
     const arrayBuffer = await imageFile.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const fileName = `render-${Date.now()}.jpg`;
+    const fileName = `render-input-${Date.now()}.jpg`;
 
     const { error: uploadError } = await supabase.storage
       .from("builtme-uploads")
@@ -41,8 +39,7 @@ export async function POST(req: NextRequest) {
       });
 
     if (uploadError) {
-      console.error("Supabase upload error:", JSON.stringify(uploadError));
-      return NextResponse.json({ error: `Image upload failed: ${uploadError.message}` }, { status: 500 });
+      return NextResponse.json({ error: `Upload failed: ${uploadError.message}` }, { status: 500 });
     }
 
     const { data: urlData } = supabase.storage
@@ -51,16 +48,29 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
+    const renderPrompt = `${room} interior design renovation, ${style} style, ${colorPalette},
+    keep exact same room structure walls columns windows doors layout,
+    only change materials finishes furniture lighting decor,
+    professional architectural visualization, photorealistic, high quality,
+    Dubai apartment, ${prompt}`;
+
+    const negativePrompt = `change room structure, move walls, remove windows, remove doors,
+    different room layout, different room shape, people, cartoon, sketch,
+    unrealistic proportions, blurry, dark, ugly`;
+
+    // Use ControlNet for structure preservation
     const prediction = await replicate.predictions.create({
-      version: "4836eb257a4fb8b87bac9eacbef9292ee8e1a497398ab96207067403a4be2daf",
+      version: "854e8727697a057c525cdb45ab037f64ecca770a4e5e7e00c59471a42f35b7cf",
       input: {
         image: imageUrl,
         prompt: renderPrompt,
         negative_prompt: negativePrompt,
         num_outputs: 2,
         num_inference_steps: 30,
-        guidance_scale: 7.5,
-        strength: 0.8,
+        guidance_scale: 8,
+        controlnet_conditioning_scale: 0.8,
+        strength: 0.7,
+        seed: Math.floor(Math.random() * 1000000),
       },
     });
 

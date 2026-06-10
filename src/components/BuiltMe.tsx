@@ -124,8 +124,9 @@ export default function BuiltMe() {
   const [category, setCategory] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [floorPlan, setFloorPlan] = useState<File | null>(null);
   const [references, setReferences] = useState<File[]>([]);
+  const [roomPhotos, setRoomPhotos] = useState<File[]>([]);
+  const [roomPhotoUrls, setRoomPhotoUrls] = useState<string[]>([]);
   const [agentStep, setAgentStep] = useState(0);
   const [doneSteps, setDoneSteps] = useState<number[]>([]);
   const [results, setResults] = useState<BuiltMeResult | null>(null);
@@ -137,8 +138,8 @@ export default function BuiltMe() {
   const [roomPhotoUrl, setRoomPhotoUrl] = useState<string>("");
   const [renderPromptExtra, setRenderPromptExtra] = useState("");
   const [user, setUser] = useState<User | null>(null);
-  const floorPlanRef = useRef<HTMLInputElement>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
+  const roomPhotosRef = useRef<HTMLInputElement>(null);
   const roomPhotoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -177,11 +178,6 @@ export default function BuiltMe() {
       console.error("Failed to load project:", err);
     }
   }, []);
-
-  const handleFloorPlan = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setFloorPlan(file);
-  };
 
   const handleReferences = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).slice(0, 5);
@@ -228,10 +224,15 @@ export default function BuiltMe() {
       formData.append("budget", budgetLabel);
       formData.append("prompt", prompt);
       if (user?.id) formData.append("userId", user.id);
-      if (floorPlan) formData.append("floorPlan", floorPlan);
-      for (const ref of references.slice(0, 3)) {
-        formData.append("referenceImages", ref);
+      if (roomPhotos.length > 0) {
+        formData.append("floorPlan", roomPhotos[0]);
+        roomPhotos.slice(1, 3).forEach(photo => {
+          formData.append("referenceImages", photo);
+        });
       }
+      references.slice(0, 2).forEach(ref => {
+        formData.append("referenceImages", ref);
+      });
 
       const response = await fetch("/api/analyse", {
         method: "POST",
@@ -269,12 +270,16 @@ export default function BuiltMe() {
   };
 
   const generateRenders = async (updatedResults?: typeof results) => {
-    if (!roomPhoto) return;
+    const photoToUse = roomPhoto || roomPhotos[0] || null;
+    if (!photoToUse) {
+      alert("Please upload a photo of your room first");
+      return;
+    }
     const activeResults = updatedResults || results;
     setRenderLoading(true);
     try {
       const formData = new FormData();
-      formData.append("image", roomPhoto);
+      formData.append("image", photoToUse);
       formData.append("prompt", prompt + (renderPromptExtra ? ". Additional: " + renderPromptExtra : ""));
       formData.append("style", activeResults?.styleProfile?.dominantStyle || "modern");
       formData.append("room", RENOVATION_CATEGORIES.find(c => c.id === category)?.label || "room");
@@ -681,22 +686,40 @@ export default function BuiltMe() {
             <div style={{ fontSize: 11, color: "#BBB", marginTop: 6 }}>Be specific — the more detail, the better your package.</div>
           </div>
 
-          {/* Floor plan upload */}
+          {/* Room photos upload */}
           <div style={{ marginBottom: 32 }}>
-            <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>FLOOR PLAN <span style={{ color: "#CCC" }}>(optional but recommended)</span></div>
-            <div className={`upload-zone ${floorPlan ? "has-file" : ""}`} onClick={() => floorPlanRef.current?.click()}>
-              <input ref={floorPlanRef} type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFloorPlan} style={{ display: "none" }} />
-              {floorPlan ? (
+            <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 6 }}>CURRENT ROOM PHOTOS <span style={{ color: "#C4A882" }}>*</span></div>
+            <div style={{ fontSize: 12, color: "#AAA", marginBottom: 12 }}>Upload 3-5 photos of your current space from different angles. The AI will preserve your exact room structure.</div>
+            <div
+              className={`upload-zone ${roomPhotos.length > 0 ? "has-file" : ""}`}
+              onClick={() => roomPhotosRef.current?.click()}
+            >
+              <input
+                ref={roomPhotosRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []).slice(0, 5);
+                  setRoomPhotos(files);
+                }}
+                style={{ display: "none" }}
+              />
+              {roomPhotos.length > 0 ? (
                 <div>
-                  <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{floorPlan.name}</div>
-                  <div style={{ fontSize: 12, color: "#AAA", marginTop: 4 }}>Click to replace</div>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                    {roomPhotos.map((f, i) => (
+                      <img key={i} src={URL.createObjectURL(f)} alt="" style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 4 }} />
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{roomPhotos.length} photo{roomPhotos.length > 1 ? "s" : ""} selected</div>
+                  <div style={{ fontSize: 12, color: "#AAA", marginTop: 4 }}>Click to change</div>
                 </div>
               ) : (
                 <div>
-                  <div style={{ fontSize: 32, marginBottom: 10 }}>📐</div>
-                  <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload floor plan</div>
-                  <div style={{ fontSize: 12, color: "#AAA" }}>PDF, JPG, or PNG · Any scale</div>
+                  <div style={{ fontSize: 32, marginBottom: 10 }}>📷</div>
+                  <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload 3-5 room photos</div>
+                  <div style={{ fontSize: 12, color: "#AAA" }}>Different angles: entrance view, corners, windows</div>
                 </div>
               )}
             </div>
@@ -732,14 +755,19 @@ export default function BuiltMe() {
 
           <button
             className="btn-primary"
-            disabled={!category || !budget || !prompt.trim()}
+            disabled={!category || !budget || !prompt.trim() || roomPhotos.length === 0}
             onClick={runAgents}
             style={{ width: "100%", fontSize: 15, padding: "16px" }}
           >
             Analyse my space →
           </button>
+          {roomPhotos.length === 0 && category && budget && prompt.trim() && (
+            <div style={{ textAlign: "center", marginTop: 8, fontSize: 12, color: "#B45757" }}>
+              Please upload at least 1 room photo to continue
+            </div>
+          )}
           <div style={{ textAlign: "center", marginTop: 12, fontSize: 12, color: "#BBB" }}>
-            Floor plan and references are optional — AI works from your description alone
+            Style references are optional — AI works from your photos and description
           </div>
         </div>
       )}
