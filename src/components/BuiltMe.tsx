@@ -215,7 +215,10 @@ export default function BuiltMe() {
         const statusData = await statusRes.json();
 
         if (statusData.status === "succeeded") {
-          setRenders(statusData.images || []);
+          const output = statusData.images;
+          const imagesArray = Array.isArray(output) ? output :
+            (output && typeof output === "object") ? Object.values(output) : [];
+          setRenders(imagesArray as string[]);
           break;
         } else if (statusData.status === "failed" || statusData.error) {
           throw new Error(statusData.error || "Render failed");
@@ -918,7 +921,7 @@ export default function BuiltMe() {
                 ) : (
                   <div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-                      {renders.map((img, i) => (
+                      {Array.isArray(renders) && renders.map((img, i) => (
                         <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
                           <img src={img} alt={`Render ${i + 1}`} style={{ width: "100%", height: 300, objectFit: "cover", display: "block" }} />
                           <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between" }}>
