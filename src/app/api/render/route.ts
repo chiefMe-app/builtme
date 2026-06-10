@@ -68,7 +68,13 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    const renderPrompt = `Interior design renovation. Keep exact room structure, walls, windows, doors, floor tiles, ceiling. Only change cabinet style, countertop, backsplash on cooking wall only, lighting fixtures, decorative items. ${prompt}. Photorealistic, high quality, Dubai apartment.`;
+    const renderPrompt = `Modern Boho interior design kitchen renovation.
+    White or cream shaker cabinets, marble or quartz white countertop,
+    neutral backsplash tiles, warm wood accents, rattan pendant light,
+    indoor plants, clean and bright atmosphere.
+    Keep same room layout, same wall positions, same window, same appliances positions.
+    ${prompt}.
+    Photorealistic, high quality, bright natural light, Dubai apartment.`;
 
     const negativePrompt = `change room structure, move walls, remove windows, remove doors,
     different room layout, different room shape, different floor tiles, changed flooring,
@@ -83,9 +89,9 @@ export async function POST(req: NextRequest) {
           prompt: renderPrompt,
           negative_prompt: negativePrompt,
           num_outputs: 1,
-          num_inference_steps: 35,
-          guidance_scale: 9,
-          strength: 0.55,
+          num_inference_steps: 40,
+          guidance_scale: 10,
+          strength: 0.70,
         },
       })
     );
