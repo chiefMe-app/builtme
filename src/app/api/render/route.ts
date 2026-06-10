@@ -6,7 +6,6 @@ export const maxDuration = 300;
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
-  useFileOutput: false,
 });
 
 // Retry on transient 429 (rate limit) responses from Replicate
@@ -69,83 +68,27 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    // Try a mask covering only the elements to redesign (cabinets, countertops,
-    // backsplash, lighting). Floor, ceiling, walls, windows and doors stay outside the mask.
-    let maskUrl: string | null = null;
-    try {
-      const maskOutput = await withRetry(() =>
-        replicate.run(
-          "schananas/grounded_sam:ee871c19efb1941f55f66a3d7d960428c8a5afcb77449547fe8e5a3ab9ebc21c",
-          {
-            input: {
-              image: imageUrl,
-              mask_prompt: "cabinets, countertop, backsplash, kitchen island, shelves, lighting fixtures",
-              negative_mask_prompt: "floor, ceiling, walls, window, door",
-              adjustment_factor: 0,
-            },
-          }
-        )
-      );
-      maskUrl = (Array.isArray(maskOutput) ? maskOutput[0] : maskOutput) as string;
-    } catch (maskErr) {
-      console.error("Mask generation failed, falling back to depth-based render:", maskErr);
-    }
+    const renderPrompt = `Interior design renovation. Keep exact room structure, walls, windows, doors, floor tiles, ceiling. Only change cabinet style, countertop, backsplash on cooking wall only, lighting fixtures, decorative items. ${prompt}. Photorealistic, high quality, Dubai apartment.`;
 
-    let prediction;
-    if (maskUrl) {
-      const mask = maskUrl;
-      const renderPrompt = `Interior design renovation of this exact room.
-      PRESERVE: floor, ceiling, room structure, appliance positions.
-      CHANGE ONLY: cabinets, countertop, backsplash on cooking wall only, lighting, decor.
-      DO NOT tile the floor or non-cooking walls.
-      ${prompt}`;
+    const negativePrompt = `change room structure, move walls, remove windows, remove doors,
+    different room layout, different room shape, different floor tiles, changed flooring,
+    new floor pattern, different floor color, replaced floor, different ceiling,
+    people, cartoon, sketch, unrealistic proportions, blurry, dark, ugly`;
 
-      // Use FLUX Fill Pro to inpaint only the masked area
-      prediction = await withRetry(() =>
-        replicate.predictions.create({
-          model: "black-forest-labs/flux-fill-pro",
-          input: {
-            image: imageUrl,
-            mask,
-            prompt: renderPrompt,
-            steps: 50,
-            guidance: 60,
-            aspect_ratio: "4:3",
-            output_format: "jpg",
-          },
-        })
-      );
-    } else {
-      const renderPrompt = `Interior design renovation of this exact room.
-      PRESERVE: floor, ceiling, room structure, appliance positions.
-      CHANGE ONLY: cabinets, countertop, backsplash on cooking wall only, lighting, decor.
-      DO NOT tile the floor or non-cooking walls.
-      ${prompt}`;
-
-      const negativePrompt = `change room structure, move walls, remove windows, remove doors,
-      different room layout, different room shape, different floor tiles, changed flooring,
-      new floor pattern, different floor color, replaced floor, different ceiling,
-      people, cartoon, sketch, unrealistic proportions, blurry, dark, ugly`;
-
-      // Fall back to FLUX Depth Pro for structure preservation
-      prediction = await withRetry(() =>
-        replicate.predictions.create({
-          model: "black-forest-labs/flux-depth-pro",
-          input: {
-            control_image: imageUrl,
-            prompt: renderPrompt,
-            negative_prompt: negativePrompt,
-            num_outputs: 1,
-            num_inference_steps: 50,
-            guidance_scale: 10,
-            prompt_strength: 0.55,
-            aspect_ratio: "4:3",
-            output_format: "jpg",
-            output_quality: 90,
-          },
-        })
-      );
-    }
+    const prediction = await withRetry(() =>
+      replicate.predictions.create({
+        version: "4836eb257a4fb8b87bac9eacbef9292ee8e1a497398ab96207067403a4be2daf",
+        input: {
+          image: imageUrl,
+          prompt: renderPrompt,
+          negative_prompt: negativePrompt,
+          num_outputs: 1,
+          num_inference_steps: 35,
+          guidance_scale: 9,
+          strength: 0.55,
+        },
+      })
+    );
 
     return NextResponse.json({ predictionId: prediction.id });
   } catch (err) {
