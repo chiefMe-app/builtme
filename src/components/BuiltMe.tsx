@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 interface ColorSwatch {
@@ -235,112 +236,45 @@ export default function BuiltMe() {
     setRenderLoading(false);
   };
 
-  const downloadPDF = () => {
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    let y = 20;
+  const downloadPDF = async () => {
+    const element = document.getElementById("results-container");
+    if (!element) return;
 
-    // Header
-    doc.setFontSize(20);
-    doc.setFont("helvetica", "bold");
-    doc.text("BuiltMe — Renovation Package", 20, y);
-    y += 10;
+    try {
+      // Temporarily show all tabs content for PDF
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
 
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "normal");
-    doc.text(results?.designConcept?.title || "Your Design", 20, y);
-    y += 8;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#F7F4EF",
+        logging: false,
+      });
 
-    doc.setFontSize(11);
-    doc.text(`Total Estimate: AED ${(results?.costBreakdown?.total || 0).toLocaleString()}`, 20, y);
-    y += 15;
+      const imgData = canvas.toDataURL("image/jpeg", 0.95);
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * pageWidth) / canvas.width;
 
-    // Design Concept
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("Design Concept", 20, y);
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    const conceptLines = doc.splitTextToSize(results?.designConcept?.description || "", pageWidth - 40);
-    doc.text(conceptLines, 20, y);
-    y += conceptLines.length * 5 + 10;
+      let heightLeft = imgHeight;
+      let position = 0;
 
-    // Style
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("Style Profile", 20, y);
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Style: ${results?.styleProfile?.dominantStyle || ""}`, 20, y);
-    y += 6;
-    doc.text(`Keywords: ${results?.styleProfile?.moodKeywords?.join(", ") || ""}`, 20, y);
-    y += 15;
+      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
 
-    // Materials
-    if (y > 240) { doc.addPage(); y = 20; }
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("Materials & Cost", 20, y);
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    results?.materials?.forEach((m: MaterialItem) => {
-      if (y > 260) { doc.addPage(); y = 20; }
-      doc.text(`• ${m.zone}: ${m.item} — ${m.totalCost}`, 20, y);
-      y += 6;
-      doc.text(`  ${m.supplier}, ${m.supplierArea}`, 24, y);
-      y += 8;
-    });
-    y += 5;
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
 
-    // Cost Breakdown
-    if (y > 240) { doc.addPage(); y = 20; }
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("Cost Breakdown", 20, y);
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Materials: AED ${(results?.costBreakdown?.materials || 0).toLocaleString()}`, 20, y); y += 6;
-    doc.text(`Furniture: AED ${(results?.costBreakdown?.furniture || 0).toLocaleString()}`, 20, y); y += 6;
-    doc.text(`Labour: AED ${(results?.costBreakdown?.labour || 0).toLocaleString()}`, 20, y); y += 6;
-    doc.text(`Contingency: AED ${(results?.costBreakdown?.contingency || 0).toLocaleString()}`, 20, y); y += 6;
-    doc.setFont("helvetica", "bold");
-    doc.text(`TOTAL: AED ${(results?.costBreakdown?.total || 0).toLocaleString()}`, 20, y); y += 15;
-
-    // Furniture
-    if (y > 240) { doc.addPage(); y = 20; }
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("Furniture", 20, y);
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    results?.furniture?.forEach((f: FurnitureItem) => {
-      if (y > 260) { doc.addPage(); y = 20; }
-      doc.text(`• ${f.item} — ${f.brand} ${f.model}: AED ${(f.priceAED || 0).toLocaleString()}`, 20, y);
-      y += 8;
-    });
-
-    // Next Steps
-    if (y > 240) { doc.addPage(); y = 20; }
-    y += 5;
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("Next Steps", 20, y);
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    results?.nextSteps?.forEach((step: string, i: number) => {
-      if (y > 260) { doc.addPage(); y = 20; }
-      const lines = doc.splitTextToSize(`${i + 1}. ${step}`, pageWidth - 40);
-      doc.text(lines, 20, y);
-      y += lines.length * 5 + 4;
-    });
-
-    doc.save(`builtme-${results?.designConcept?.title?.replace(/\s+/g, "-") || "renovation"}.pdf`);
+      pdf.save(`builtme-${results?.designConcept?.title?.replace(/\s+/g, "-") || "renovation"}.pdf`);
+    } catch (err) {
+      console.error("PDF error:", err);
+    }
   };
 
   const totalCost = results?.costBreakdown?.total || 0;
@@ -775,7 +709,7 @@ export default function BuiltMe() {
             ))}
           </div>
 
-          <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px" }}>
+          <div id="results-container" style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px" }}>
 
             {/* CONCEPT TAB */}
             {activeTab === "concept" && (
