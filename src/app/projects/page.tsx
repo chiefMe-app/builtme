@@ -58,9 +58,8 @@ export default function ProjectsPage() {
 
   const openProject = (project: Project) => {
     try {
-      localStorage.setItem("builtme_results", JSON.stringify(project.result ?? {}));
-      localStorage.setItem("builtme_renders", JSON.stringify(project.renders ?? []));
-      localStorage.setItem("builtme_load_project", "1");
+      localStorage.setItem("builtme_load_project", JSON.stringify(project.result));
+      localStorage.setItem("builtme_renders", JSON.stringify(project.renders || []));
     } catch (err) {
       console.error("Failed to store project:", err);
     }
@@ -116,6 +115,19 @@ export default function ProjectsPage() {
         }
         .btn-ghost:hover { border-color: #1A1A1A; }
 
+        .badge {
+          display: inline-block;
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          color: #666;
+          background: #FAF8F5;
+          border: 1px solid #EAE4D9;
+          border-radius: 999px;
+          padding: 4px 10px;
+          margin-right: 6px;
+        }
+
         .project-card {
           background: #FFF;
           border: 1px solid #EAE4D9;
@@ -135,7 +147,7 @@ export default function ProjectsPage() {
           <span className="serif" style={{ fontSize: 22, fontWeight: 400, fontStyle: "italic", color: "#C4A882" }}>Me</span>
         </a>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <a href="/" className="btn-primary">Start your renovation</a>
+          <a href="/" className="btn-primary">New Project</a>
           {user && (
             <button className="btn-ghost" onClick={handleSignOut}>Sign out</button>
           )}
@@ -156,36 +168,47 @@ export default function ProjectsPage() {
         )}
 
         {!loading && user && projects.length === 0 && (
-          <div className="project-card" style={{ padding: 32, cursor: "default" }}>
-            <p style={{ marginBottom: 16 }}>You haven&apos;t created any renovation packages yet.</p>
-            <a href="/" className="btn-primary">Start your renovation</a>
+          <div style={{ textAlign: "center", padding: "60px 0" }}>
+            <p style={{ color: "#666", marginBottom: 20, fontSize: 15 }}>No projects yet.</p>
+            <a href="/" className="btn-primary">Start your first renovation →</a>
           </div>
         )}
 
         {!loading && projects.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
             {projects.map((project) => {
               const total = project.result?.costBreakdown?.total || 0;
               const title = project.title || project.result?.designConcept?.title || "Untitled project";
               const firstRender = Array.isArray(project.renders) && project.renders.length > 0 ? project.renders[0] : null;
+              const formattedDate = new Date(project.created_at).toLocaleDateString("en-GB", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              });
 
               return (
                 <button key={project.id} className="project-card" onClick={() => openProject(project)}>
                   {firstRender ? (
-                    <img src={firstRender} alt={title} style={{ width: "100%", height: 160, objectFit: "cover", display: "block" }} />
+                    <img src={firstRender} alt={title} style={{ width: "100%", height: 200, objectFit: "cover", display: "block" }} />
                   ) : (
-                    <div style={{ width: "100%", height: 160, background: "#FAF8F5", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div style={{ width: "100%", height: 200, background: "#FAF8F5", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <span className="mono" style={{ fontSize: 10, color: "#D4C9B8", letterSpacing: "0.2em" }}>NO RENDER YET</span>
                     </div>
                   )}
-                  <div style={{ padding: 16 }}>
-                    <div className="serif" style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>{title}</div>
-                    <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{project.category} · {project.budget}</div>
-                    <div className="serif" style={{ fontSize: 14, color: "#C4A882", fontWeight: 600, marginBottom: 6 }}>
+                  <div style={{ padding: 20 }}>
+                    <div className="serif" style={{ fontSize: 18, fontWeight: 600, marginBottom: 10 }}>{title}</div>
+                    <div style={{ marginBottom: 10 }}>
+                      <span className="badge">{project.category}</span>
+                      <span className="badge">{project.budget}</span>
+                    </div>
+                    <div className="serif" style={{ fontSize: 16, color: "#C4A882", fontWeight: 600, marginBottom: 10 }}>
                       AED {total.toLocaleString()}
                     </div>
-                    <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em" }}>
-                      {new Date(project.created_at).toLocaleDateString()}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em" }}>
+                        {formattedDate}
+                      </div>
+                      <span className="btn-ghost" style={{ fontSize: 12, padding: "8px 18px" }}>View project</span>
                     </div>
                   </div>
                 </button>

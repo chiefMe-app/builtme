@@ -160,22 +160,18 @@ export default function BuiltMe() {
   // If a project was opened from "My Projects", load it straight into the results screen
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (localStorage.getItem("builtme_load_project") !== "1") return;
+    const savedProject = localStorage.getItem("builtme_load_project");
+    if (!savedProject) return;
 
     try {
-      const storedResults = localStorage.getItem("builtme_results");
-      if (storedResults) setResults(JSON.parse(storedResults));
-      const storedRenders = localStorage.getItem("builtme_renders");
-      if (storedRenders) {
-        const parsed = JSON.parse(storedRenders);
-        if (Array.isArray(parsed)) setRenders(parsed);
-      }
+      localStorage.removeItem("builtme_load_project");
+      setResults(JSON.parse(savedProject));
+      const savedRenders = localStorage.getItem("builtme_renders");
+      if (savedRenders) setRenders(JSON.parse(savedRenders));
       setScreen("results");
     } catch (err) {
       console.error("Failed to load project:", err);
     }
-
-    localStorage.removeItem("builtme_load_project");
   }, []);
 
   const handleFloorPlan = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -503,7 +499,7 @@ export default function BuiltMe() {
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.15em" }}>DUBAI</div>
-              <a href="/projects" className="btn-ghost" style={{ padding: "10px 24px", fontSize: 13, textDecoration: "none", display: "inline-block" }}>My Projects</a>
+              <a href="/projects" style={{ fontSize: 13, color: "#666", textDecoration: "none", fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em" }}>MY PROJECTS</a>
               <button className="btn-primary" onClick={() => setScreen("configure")} style={{ padding: "10px 24px", fontSize: 13 }}>Start your renovation</button>
               {user && (
                 <button
@@ -1006,24 +1002,52 @@ export default function BuiltMe() {
                     </button>
                   </div>
                 ) : (
-                  <div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-                      {Array.isArray(renders) && renders.map((img, i) => (
-                        <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                          <img src={img} alt={`Render ${i + 1}`} style={{ width: "100%", height: 300, objectFit: "cover", display: "block" }} />
-                          <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between" }}>
-                            <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 1}</span>
-                            <a href={img} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#C4A882", textDecoration: "none" }}>Download →</a>
+                  renders.length > 0 && (
+                    <div className="fade-in">
+                      <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 20 }}>BEFORE → AFTER TRANSFORMATION</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+                        {/* BEFORE */}
+                        <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                          {roomPhoto && (
+                            <img src={URL.createObjectURL(roomPhoto)} alt="Before" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
+                          )}
+                          <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
+                            <span style={{ fontSize: 11, color: "#999" }}>Current space</span>
                           </div>
                         </div>
-                      ))}
+                        {/* AFTER */}
+                        <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                          <img src={renders[0]} alt="After" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
+                          <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
+                            <a href={renders[0]} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
+                          </div>
+                        </div>
+                      </div>
+                      {renders.length > 1 && (
+                        <div>
+                          <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 12 }}>MORE CONCEPTS</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                            {renders.slice(1).map((img, i) => (
+                              <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                                <img src={img} alt={`Concept ${i + 2}`} style={{ width: "100%", height: 160, objectFit: "cover", display: "block" }} />
+                                <div style={{ padding: "8px 12px", background: "#FFF", display: "flex", justifyContent: "space-between" }}>
+                                  <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 2}</span>
+                                  <a href={img} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View →</a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div style={{ textAlign: "center", marginTop: 20 }}>
+                        <button className="btn-ghost" onClick={generateRenders} disabled={renderLoading}>
+                          {renderLoading ? "Generating..." : "Regenerate renders"}
+                        </button>
+                      </div>
                     </div>
-                    <div style={{ textAlign: "center" }}>
-                      <button className="btn-ghost" onClick={generateRenders} disabled={renderLoading}>
-                        {renderLoading ? "Generating..." : "Regenerate renders"}
-                      </button>
-                    </div>
-                  </div>
+                  )
                 )}
               </div>
             )}
