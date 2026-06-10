@@ -26,7 +26,7 @@ PROJECT: ${category}, ${budget}, Dubai UAE
 VISION: "${prompt || "Modern, clean and functional space"}"
 
 Return ONLY this JSON, max 3 items per array:
-{"styleProfile":{"dominantStyle":"","colorPalette":[{"name":"","hex":"","usage":""}],"moodKeywords":["","",""],"designDirection":""},"designConcept":{"title":"","description":"","beforeAfterNarrative":""},"materials":[{"zone":"","item":"","specification":"","supplier":"","supplierArea":"","priceRange":"","quantity":"","totalCost":""}],"furniture":[{"item":"","brand":"","model":"","priceAED":0,"buyLink":"","alternative":"","altPriceAED":0}],"costBreakdown":{"materials":0,"furniture":0,"labour":0,"contingency":0,"total":0,"currency":"AED"},"timeline":[{"week":"Week 1","tasks":["",""]}],"supplierMap":[{"name":"","category":"","area":"","website":""}],"nextSteps":["","",""]}`;
+{"styleProfile":{"dominantStyle":"","colorPalette":[{"name":"","hex":"","usage":""}],"moodKeywords":["","",""],"designDirection":""},"designConcept":{"title":"","description":"","beforeAfterNarrative":""},"materials":[{"zone":"","item":"","specification":"","supplier":"","supplierArea":"","priceRange":"","quantity":"","totalCost":""}],"furniture":[{"item":"","brand":"","model":"","quantity":1,"priceAED":0,"totalPriceAED":0,"buyLink":"","imageSearchTerm":"","alternative":"","altPriceAED":0}],"costBreakdown":{"materials":0,"furniture":0,"labour":0,"contingency":0,"total":0,"currency":"AED"},"timeline":[{"week":"Week 1","tasks":["",""]}],"supplierMap":[{"name":"","category":"","area":"","website":""}],"nextSteps":["","",""]}`;
 }
 
 export async function POST(request: NextRequest) {

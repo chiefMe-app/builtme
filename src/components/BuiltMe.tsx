@@ -51,8 +51,11 @@ interface FurnitureItem {
   item: string;
   brand: string;
   model: string;
+  quantity?: number;
   priceAED: number;
+  totalPriceAED?: number;
   buyLink: string;
+  imageSearchTerm?: string;
   alternative: string;
   altPriceAED: number;
 }
@@ -1069,7 +1072,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 <div style={{ background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4, padding: "14px 20px", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em" }}>TOTAL FURNITURE ESTIMATE</span>
                   <span className="serif" style={{ fontSize: 20, color: "#C4A882", fontWeight: 600 }}>
-                    AED {(results?.costBreakdown?.furniture || 0).toLocaleString()}
+                    AED {(results?.furniture?.reduce((sum, item) => sum + ((item.quantity || 1) * (item.priceAED || 0)), 0) || 0).toLocaleString()}
                   </span>
                 </div>
 
@@ -1085,14 +1088,27 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                     })
                     ?.map((item, i) => (
                       <div key={i} className="card" style={{ padding: 20 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 12 }}>
+                        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginBottom: 12 }}>
+                          <img
+                            src={`https://source.unsplash.com/120x120/?${encodeURIComponent(item.imageSearchTerm || item.item)}`}
+                            alt={item.item}
+                            style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 4, flexShrink: 0 }}
+                          />
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>{item.item}</div>
                             <div style={{ fontSize: 13, color: "#888", fontWeight: 300 }}>{item.brand} — {item.model}</div>
+                            <div style={{ fontSize: 12, color: "#AAA", marginTop: 4 }}>
+                              Qty: {item.quantity || 1} × AED {(item.priceAED || 0).toLocaleString()} =
+                              <span style={{ color: "#C4A882", fontWeight: 600 }}> AED {((item.quantity || 1) * (item.priceAED || 0)).toLocaleString()}</span>
+                            </div>
                           </div>
                           <div style={{ textAlign: "right", flexShrink: 0 }}>
-                            <div className="serif" style={{ fontSize: 20, fontWeight: 600, color: "#1A1A1A" }}>
+                            <div className="serif" style={{ fontSize: 18, fontWeight: 600, color: "#1A1A1A" }}>
                               AED {(item.priceAED || 0).toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#AAA" }}>per unit</div>
+                            <div style={{ fontSize: 13, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>
+                              × {item.quantity || 1} = AED {((item.quantity || 1) * (item.priceAED || 0)).toLocaleString()}
                             </div>
                           </div>
                         </div>
@@ -1198,9 +1214,9 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #2A2A2A" }}>
                       <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                         <input type="checkbox" style={{ accentColor: "#C4A882", width: 14, height: 14 }} />
-                        <span style={{ fontSize: 13, color: "#D0C8B8", fontWeight: 300 }}>{item.item}</span>
+                        <span style={{ fontSize: 13, color: "#D0C8B8", fontWeight: 300 }}>{item.item} {(item.quantity || 1) > 1 ? `(×${item.quantity})` : ""}</span>
                       </div>
-                      <span className="mono" style={{ fontSize: 12, color: "#C4A882" }}>AED {(item.priceAED || 0).toLocaleString()}</span>
+                      <span className="mono" style={{ fontSize: 12, color: "#C4A882" }}>AED {((item.quantity || 1) * (item.priceAED || 0)).toLocaleString()}</span>
                     </div>
                   ))}
                 </div>
