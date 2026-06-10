@@ -131,6 +131,7 @@ export default function BuiltMe() {
   const [doneSteps, setDoneSteps] = useState<number[]>([]);
   const [results, setResults] = useState<BuiltMeResult | null>(null);
   const [activeTab, setActiveTab] = useState("concept");
+  const [furnitureBudget, setFurnitureBudget] = useState<"all" | "budget" | "mid" | "premium">("all");
   const [isLoading, setIsLoading] = useState(false);
   const [renders, setRenders] = useState<string[]>([]);
   const [renderLoading, setRenderLoading] = useState(false);
@@ -1035,26 +1036,174 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
 
             {/* FURNITURE TAB */}
             {activeTab === "furniture" && (
-              <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {results.furniture?.map((item, i) => (
-                  <div key={i} className="card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>{item.item}</div>
-                      <div style={{ fontSize: 13, color: "#888", fontWeight: 300 }}>{item.brand} — {item.model}</div>
+              <div className="fade-in">
+                {/* Budget filter */}
+                <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+                  {[
+                    { id: "all", label: "All" },
+                    { id: "budget", label: "Under AED 500" },
+                    { id: "mid", label: "AED 500–2,000" },
+                    { id: "premium", label: "AED 2,000+" },
+                  ].map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setFurnitureBudget(f.id as "all" | "budget" | "mid" | "premium")}
+                      style={{
+                        padding: "8px 18px",
+                        background: furnitureBudget === f.id ? "#1A1A1A" : "#FFF",
+                        color: furnitureBudget === f.id ? "#F7F4EF" : "#666",
+                        border: "1px solid #EAE4D9",
+                        borderRadius: 20,
+                        fontSize: 12,
+                        fontFamily: "'DM Sans', sans-serif",
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Total furniture cost */}
+                <div style={{ background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4, padding: "14px 20px", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em" }}>TOTAL FURNITURE ESTIMATE</span>
+                  <span className="serif" style={{ fontSize: 20, color: "#C4A882", fontWeight: 600 }}>
+                    AED {(results?.costBreakdown?.furniture || 0).toLocaleString()}
+                  </span>
+                </div>
+
+                {/* Furniture items */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {results.furniture
+                    ?.filter((item) => {
+                      if (furnitureBudget === "all") return true;
+                      if (furnitureBudget === "budget") return (item.priceAED || 0) < 500;
+                      if (furnitureBudget === "mid") return (item.priceAED || 0) >= 500 && (item.priceAED || 0) <= 2000;
+                      if (furnitureBudget === "premium") return (item.priceAED || 0) > 2000;
+                      return true;
+                    })
+                    ?.map((item, i) => (
+                      <div key={i} className="card" style={{ padding: 20 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>{item.item}</div>
+                            <div style={{ fontSize: 13, color: "#888", fontWeight: 300 }}>{item.brand} — {item.model}</div>
+                          </div>
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            <div className="serif" style={{ fontSize: 20, fontWeight: 600, color: "#1A1A1A" }}>
+                              AED {(item.priceAED || 0).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Buy buttons */}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                          {item.buyLink && item.buyLink.startsWith("http") && (
+                            <a
+                              href={item.buyLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 6,
+                                padding: "8px 16px",
+                                background: "#1A1A1A", color: "#F7F4EF",
+                                textDecoration: "none", fontSize: 12,
+                                fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+                                borderRadius: 2,
+                              }}
+                            >
+                              Buy now →
+                            </a>
+                          )}
+                          {/* Search links */}
+                          <a
+                            href={`https://www.noon.com/uae-en/search/?q=${encodeURIComponent(item.item)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 6,
+                              padding: "8px 16px",
+                              background: "#FFF", color: "#666",
+                              border: "1px solid #EAE4D9",
+                              textDecoration: "none", fontSize: 12,
+                              fontFamily: "'DM Sans', sans-serif",
+                              borderRadius: 2,
+                            }}
+                          >
+                            Search Noon
+                          </a>
+                          <a
+                            href={`https://www.amazon.ae/s?k=${encodeURIComponent(item.item)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 6,
+                              padding: "8px 16px",
+                              background: "#FFF", color: "#666",
+                              border: "1px solid #EAE4D9",
+                              textDecoration: "none", fontSize: 12,
+                              fontFamily: "'DM Sans', sans-serif",
+                              borderRadius: 2,
+                            }}
+                          >
+                            Search Amazon AE
+                          </a>
+                          <a
+                            href={`https://www.ikea.com/ae/en/search/?q=${encodeURIComponent(item.item)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 6,
+                              padding: "8px 16px",
+                              background: "#FFF", color: "#0058A3",
+                              border: "1px solid #0058A333",
+                              textDecoration: "none", fontSize: 12,
+                              fontFamily: "'DM Sans', sans-serif",
+                              borderRadius: 2,
+                            }}
+                          >
+                            Search IKEA UAE
+                          </a>
+                        </div>
+
+                        {/* Budget alternative */}
+                        {item.alternative && (
+                          <div style={{ background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div>
+                              <div className="mono" style={{ fontSize: 10, color: "#C4A882", marginBottom: 4 }}>BUDGET ALTERNATIVE</div>
+                              <div style={{ fontSize: 13, fontWeight: 400 }}>{item.alternative}</div>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontSize: 15, fontWeight: 600, color: "#888" }}>AED {(item.altPriceAED || 0).toLocaleString()}</div>
+                              <a
+                                href={`https://www.noon.com/uae-en/search/?q=${encodeURIComponent(item.alternative)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}
+                              >
+                                Search →
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                </div>
+
+                {/* Shopping checklist summary */}
+                <div style={{ marginTop: 24, background: "#1A1A1A", borderRadius: 4, padding: 24 }}>
+                  <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>SHOPPING CHECKLIST</div>
+                  {results.furniture?.map((item, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #2A2A2A" }}>
+                      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                        <input type="checkbox" style={{ accentColor: "#C4A882", width: 14, height: 14 }} />
+                        <span style={{ fontSize: 13, color: "#D0C8B8", fontWeight: 300 }}>{item.item}</span>
+                      </div>
+                      <span className="mono" style={{ fontSize: 12, color: "#C4A882" }}>AED {(item.priceAED || 0).toLocaleString()}</span>
                     </div>
-                    <div style={{ textAlign: "right", minWidth: 120 }}>
-                      <div className="serif" style={{ fontSize: 18, fontWeight: 600, color: "#1A1A1A" }}>AED {(item.priceAED || 0).toLocaleString()}</div>
-                      {item.buyLink && item.buyLink.startsWith("http") && (
-                        <a href={item.buyLink} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#C4A882", textDecoration: "none", fontWeight: 500 }}>Buy now →</a>
-                      )}
-                    </div>
-                    <div style={{ borderLeft: "1px solid #EAE4D9", paddingLeft: 16, minWidth: 140 }}>
-                      <div className="mono" style={{ fontSize: 10, color: "#AAA", marginBottom: 4 }}>BUDGET ALT</div>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{item.alternative}</div>
-                      <div style={{ fontSize: 13, color: "#888" }}>AED {(item.altPriceAED || 0).toLocaleString()}</div>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
 
