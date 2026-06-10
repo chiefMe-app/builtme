@@ -138,6 +138,7 @@ export async function POST(request: NextRequest) {
     }
 
     let result: unknown;
+    console.log("CLAUDE RAW RESPONSE:", textBlock.text);
     try {
       let text = textBlock.text.trim();
       // Remove markdown code blocks if present
@@ -152,7 +153,7 @@ export async function POST(request: NextRequest) {
       result = JSON.parse(text);
     } catch {
       return NextResponse.json(
-        { error: "Failed to parse Claude response as JSON", raw: textBlock.text.slice(0, 500) },
+        { error: "Failed to parse Claude response as JSON", raw: textBlock.text },
         { status: 502 },
       );
     }
