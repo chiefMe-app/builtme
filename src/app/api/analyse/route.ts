@@ -19,73 +19,33 @@ const SUPPORTED_IMAGE_TYPES = new Set([
 ]);
 
 function buildPrompt(category: string, budget: string, prompt: string) {
-  return `You are BuiltMe AI, a Dubai-based renovation intelligence system. Analyse the uploaded floor plan and style reference images (if any), combined with the homeowner's brief, and generate a comprehensive minor renovation package.
+  return `You are BuiltMe AI, a Dubai renovation assistant. Generate a renovation package as JSON ONLY (no markdown, no backticks).
 
-PROJECT BRIEF:
-- Renovation scope: ${category}
-- Budget: ${budget}
-- Location: Dubai, UAE
-- Homeowner's vision: "${prompt || "Modern, clean and functional space"}"
+PROJECT: ${category} renovation, ${budget} budget, Dubai UAE
+VISION: "${prompt || "Modern, clean and functional space"}"
 
-Generate a JSON response ONLY (no markdown, no backticks) with this exact structure:
+Respond with ONLY this JSON structure, keep each array to maximum 3 items:
 {
   "styleProfile": {
     "dominantStyle": "style name",
-    "colorPalette": [
-      {"name": "color name", "hex": "#XXXXXX", "usage": "where used"}
-    ],
-    "moodKeywords": ["word1", "word2", "word3", "word4"],
-    "designDirection": "2-3 sentence description of the design direction"
-  },
-  "spaceAnalysis": {
-    "estimatedArea": "X sqm",
-    "rooms": [
-      {"room": "room name", "observation": "key observation", "opportunity": "renovation opportunity"}
-    ],
-    "keyConstraints": ["constraint1", "constraint2"]
+    "colorPalette": [{"name": "color name", "hex": "#XXXXXX", "usage": "where used"}],
+    "moodKeywords": ["word1", "word2", "word3"],
+    "designDirection": "2 sentence description"
   },
   "designConcept": {
     "title": "concept name",
-    "description": "3-4 sentences describing the full concept",
-    "beforeAfterNarrative": "what will change and how it will feel different"
+    "description": "2 sentence description",
+    "beforeAfterNarrative": "one sentence"
   },
   "materials": [
-    {
-      "zone": "zone/room name",
-      "item": "material item",
-      "specification": "specific material description",
-      "supplier": "Dubai supplier name",
-      "supplierArea": "Dubai area (e.g. Al Quoz, DIFC)",
-      "priceRange": "AED XX–XX per sqm/unit",
-      "quantity": "estimated qty",
-      "totalCost": "AED XXXXX"
-    }
+    {"zone": "zone", "item": "item", "specification": "spec", "supplier": "Dubai supplier", "supplierArea": "area", "priceRange": "AED XX-XX", "quantity": "qty", "totalCost": "AED XXXXX"}
   ],
   "furniture": [
-    {
-      "item": "furniture piece",
-      "brand": "brand name",
-      "model": "model name",
-      "priceAED": number,
-      "buyLink": "https://...",
-      "alternative": "budget alternative brand",
-      "altPriceAED": number
-    }
+    {"item": "piece", "brand": "brand", "model": "model", "priceAED": 0, "buyLink": "https://", "alternative": "alt brand", "altPriceAED": 0}
   ],
-  "costBreakdown": {
-    "materials": number,
-    "furniture": number,
-    "labour": number,
-    "contingency": number,
-    "total": number,
-    "currency": "AED"
-  },
-  "timeline": [
-    {"week": "Week 1", "tasks": ["task1", "task2"]}
-  ],
-  "supplierMap": [
-    {"name": "supplier name", "category": "what they supply", "area": "Dubai area", "website": "url or note"}
-  ],
+  "costBreakdown": {"materials": 0, "furniture": 0, "labour": 0, "contingency": 0, "total": 0, "currency": "AED"},
+  "timeline": [{"week": "Week 1", "tasks": ["task1", "task2"]}],
+  "supplierMap": [{"name": "supplier", "category": "category", "area": "Dubai area", "website": "url"}],
   "nextSteps": ["step1", "step2", "step3"]
 }`;
 }
@@ -162,7 +122,7 @@ export async function POST(request: NextRequest) {
 
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 4000,
+      max_tokens: 1500,
       messages: [{ role: "user", content }],
     });
 
