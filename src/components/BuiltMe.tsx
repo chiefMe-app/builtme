@@ -911,6 +911,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
               { id: "concept", label: "Design Concept" },
               { id: "materials", label: "Materials & Cost" },
               { id: "furniture", label: "Furniture" },
+              { id: "contractors", label: "Contractors" },
               { id: "suppliers", label: "Dubai Suppliers" },
               { id: "timeline", label: "Timeline" },
               { id: "renders", label: "AI Renders" },
@@ -1245,6 +1246,22 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
               </div>
             )}
 
+            {/* CONTRACTORS TAB */}
+            {activeTab === "contractors" && (
+              <div className="fade-in">
+                <div style={{ marginBottom: 24 }}>
+                  <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>AGENT 4 — CONTRACTOR MATCHING</div>
+                  <h3 className="serif" style={{ fontSize: 24, fontWeight: 400, marginBottom: 8 }}>Find Your Contractor</h3>
+                  <p style={{ fontSize: 14, color: "#888", fontWeight: 300, lineHeight: 1.7 }}>
+                    Based on your project scope, here are the contractor types you need and what to look for in Dubai.
+                  </p>
+                </div>
+
+                {/* Contractor types needed */}
+                <ContractorSection results={results} prompt={prompt} category={category} user={user} />
+              </div>
+            )}
+
             {/* SUPPLIERS TAB */}
             {activeTab === "suppliers" && (
               <div className="fade-in" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -1411,6 +1428,183 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
           <div style={{ fontSize: 48 }}>⚠️</div>
           <p style={{ color: "#888" }}>Something went wrong. Please try again.</p>
           <button className="btn-primary" onClick={() => setScreen("configure")}>Try again</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ContractorPlatform {
+  name: string;
+  url: string;
+}
+
+interface ContractorType {
+  type: string;
+  icon: string;
+  required: boolean;
+  description: string;
+  relevantScope: string;
+  estimatedCost: string;
+  duration: string;
+  checkList: string[];
+  platforms: ContractorPlatform[];
+}
+
+interface ContractorsData {
+  types: ContractorType[];
+  questionsToAsk: string[];
+}
+
+function ContractorSection({ results, prompt, category, user }: { results: BuiltMeResult | null; prompt: string; category: string | null; user: User | null }) {
+  const [contractors, setContractors] = useState<ContractorsData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [whatsappSent, setWhatsappSent] = useState<string[]>([]);
+
+  const generateContractors = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/contractors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: results?.spaceAnalysis || {},
+          materials: results?.materials || [],
+          designConcept: results?.designConcept?.title || "",
+          category: category,
+          prompt: prompt,
+        }),
+      });
+      const data = await response.json();
+      setContractors(data.contractors);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  const sendWhatsAppBrief = (contractor: ContractorType) => {
+    const brief = `Hi, I found your profile on BuiltMe. I'm looking for a ${contractor.type} contractor in Dubai for my renovation project.
+
+Project: ${results?.designConcept?.title || "Home Renovation"}
+Scope: ${contractor.relevantScope}
+Budget: ${contractor.estimatedCost}
+Location: Dubai
+
+Could you please provide a quote? Thank you.`;
+
+    const url = `https://wa.me/?text=${encodeURIComponent(brief)}`;
+    window.open(url, "_blank");
+    setWhatsappSent(prev => [...prev, contractor.type]);
+  };
+
+  if (!contractors) {
+    return (
+      <div style={{ textAlign: "center", padding: "48px 0" }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🔨</div>
+        <div className="serif" style={{ fontSize: 22, marginBottom: 8 }}>Match Contractors to Your Project</div>
+        <p style={{ fontSize: 14, color: "#888", marginBottom: 24, fontWeight: 300 }}>
+          AI will identify what contractor types you need and generate a ready-to-send brief
+        </p>
+        <button
+          onClick={generateContractors}
+          disabled={loading}
+          style={{
+            background: "#1A1A1A", color: "#F7F4EF", border: "none",
+            padding: "14px 36px", fontSize: 14, fontFamily: "'DM Sans', sans-serif",
+            fontWeight: 500, cursor: "pointer", borderRadius: 2,
+          }}
+        >
+          {loading ? "Analysing your project..." : "Find contractors →"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Contractor types */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+        {contractors?.types?.map((contractor, i) => (
+          <div key={i} style={{ background: "#FFF", border: "1px solid #EAE4D9", borderRadius: 4, padding: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 24 }}>{contractor.icon}</span>
+                  <span style={{ fontSize: 18, fontWeight: 500 }}>{contractor.type}</span>
+                  {contractor.required && (
+                    <span style={{ background: "#C4A88222", color: "#C4A882", fontSize: 10, padding: "3px 10px", borderRadius: 20, fontFamily: "monospace" }}>REQUIRED</span>
+                  )}
+                </div>
+                <p style={{ fontSize: 13, color: "#888", fontWeight: 300, lineHeight: 1.7 }}>{contractor.description}</p>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 16 }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "#C4A882" }}>{contractor.estimatedCost}</div>
+                <div style={{ fontSize: 11, color: "#AAA", marginTop: 2 }}>{contractor.duration}</div>
+              </div>
+            </div>
+
+            {/* What to check */}
+            <div style={{ background: "#FAF8F5", borderRadius: 4, padding: "12px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontFamily: "monospace", color: "#AAA", letterSpacing: "0.1em", marginBottom: 8 }}>WHAT TO CHECK WHEN HIRING</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {contractor.checkList?.map((check, j) => (
+                  <span key={j} style={{ fontSize: 12, background: "#F0EBE2", color: "#7A6A55", padding: "4px 10px", borderRadius: 20 }}>{check}</span>
+                ))}
+              </div>
+            </div>
+
+            {/* Where to find */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontFamily: "monospace", color: "#AAA", letterSpacing: "0.1em", marginBottom: 8 }}>WHERE TO FIND IN DUBAI</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {contractor.platforms?.map((platform, j) => (
+                  <a
+                    key={j}
+                    href={platform.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      fontSize: 12, padding: "6px 14px",
+                      background: "#FFF", border: "1px solid #EAE4D9",
+                      borderRadius: 2, textDecoration: "none", color: "#444",
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}
+                  >
+                    {platform.name} →
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* WhatsApp brief */}
+            <button
+              onClick={() => sendWhatsAppBrief(contractor)}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                background: whatsappSent.includes(contractor.type) ? "#4CAF5011" : "#25D36611",
+                border: `1px solid ${whatsappSent.includes(contractor.type) ? "#4CAF50" : "#25D366"}`,
+                color: whatsappSent.includes(contractor.type) ? "#4CAF50" : "#25D366",
+                padding: "10px 20px", borderRadius: 2, cursor: "pointer",
+                fontSize: 13, fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+              }}
+            >
+              {whatsappSent.includes(contractor.type) ? "✓ Brief sent" : "📱 Send WhatsApp Brief"}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Questions to ask contractor */}
+      {contractors?.questionsToAsk && (
+        <div style={{ background: "#1A1A1A", borderRadius: 4, padding: 24 }}>
+          <div style={{ fontSize: 10, fontFamily: "monospace", color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>QUESTIONS TO ASK ANY CONTRACTOR</div>
+          {contractors.questionsToAsk.map((q, i) => (
+            <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0", borderBottom: "1px solid #2A2A2A", alignItems: "flex-start" }}>
+              <span style={{ color: "#C4A882", fontFamily: "monospace", fontSize: 12, flexShrink: 0 }}>0{i + 1}</span>
+              <span style={{ fontSize: 13, color: "#D0C8B8", fontWeight: 300 }}>{q}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
