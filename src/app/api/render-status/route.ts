@@ -17,6 +17,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const prediction = await replicate.predictions.get(id);
+    console.log("Prediction status:", prediction.status);
+    console.log("Prediction output:", JSON.stringify(prediction.output));
+
     return NextResponse.json({
       status: prediction.status,
       images: prediction.output || [],
