@@ -28,6 +28,7 @@ export default function ProjectsPage() {
   const [user, setUser] = useState<User | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [imageErrors, setImageErrors] = useState<Set<string | number>>(new Set());
 
   useEffect(() => {
     const load = async () => {
@@ -217,7 +218,7 @@ export default function ProjectsPage() {
             {projects.map((project) => {
               const total = project.result?.costBreakdown?.total || 0;
               const title = project.title || project.result?.designConcept?.title || "Untitled project";
-              const firstRender = Array.isArray(project.renders) && project.renders.length > 0 ? project.renders[0] : null;
+              const firstRender = Array.isArray(project.renders) && project.renders.length > 0 && !imageErrors.has(project.id) ? project.renders[0] : null;
               const formattedDate = new Date(project.created_at).toLocaleDateString("en-GB", {
                 day: "numeric",
                 month: "short",
@@ -242,7 +243,12 @@ export default function ProjectsPage() {
                     ✕
                   </button>
                   {firstRender ? (
-                    <img src={firstRender} alt={title} style={{ width: "100%", height: 200, objectFit: "cover", display: "block" }} />
+                    <img
+                      src={firstRender}
+                      alt={title}
+                      style={{ width: "100%", height: 200, objectFit: "cover", display: "block" }}
+                      onError={() => setImageErrors((prev) => new Set(prev).add(project.id))}
+                    />
                   ) : (
                     <div style={{ width: "100%", height: 200, background: "#FAF8F5", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <span className="mono" style={{ fontSize: 10, color: "#D4C9B8", letterSpacing: "0.2em" }}>NO RENDER YET</span>
