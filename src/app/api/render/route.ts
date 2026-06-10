@@ -1,5 +1,6 @@
 import Replicate from "replicate";
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 export const maxDuration = 300;
 
@@ -9,6 +10,11 @@ const replicate = new Replicate({
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     const formData = await req.formData();
     const prompt = formData.get("prompt") as string;
     const style = formData.get("style") as string;
@@ -24,9 +30,25 @@ export async function POST(req: NextRequest) {
     }
 
     const arrayBuffer = await imageFile.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-    const mimeType = imageFile.type || "image/jpeg";
-    const imageUrl = `data:${mimeType};base64,${base64}`;
+    const buffer = Buffer.from(arrayBuffer);
+    const fileName = `render-${Date.now()}.jpg`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("builtme-uploads")
+      .upload(fileName, buffer, {
+        contentType: imageFile.type || "image/jpeg",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      return NextResponse.json({ error: "Image upload failed" }, { status: 500 });
+    }
+
+    const { data: urlData } = supabase.storage
+      .from("builtme-uploads")
+      .getPublicUrl(fileName);
+
+    const imageUrl = urlData.publicUrl;
 
     const prediction = await replicate.predictions.create({
       version: "4836eb257a4fb8b87bac9eacbef9292ee8e1a497398ab96207067403a4be2daf",
