@@ -6,6 +6,7 @@ export const maxDuration = 300;
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
+  useFileOutput: false,
 });
 
 export async function POST(req: NextRequest) {
@@ -47,30 +48,37 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    const renderPrompt = `Interior design renovation of this exact room.
-    CRITICAL - DO NOT CHANGE: the floor tiles/flooring material, the ceiling height and ceiling material, suspended ceiling tiles if present, room dimensions, walls position, windows position, doors position.
-    CHANGE ONLY: cabinet colors and style, countertop material, backsplash tiles, lighting fixtures, decorative items, plants.
+    // Generate a mask covering only the elements to redesign (cabinets, countertops,
+    // backsplash, lighting). Floor, ceiling, walls, windows and doors stay outside the mask.
+    const maskOutput = await replicate.run(
+      "schananas/grounded_sam:ee871c19efb1941f55f66a3d7d960428c8a5afcb77449547fe8e5a3ab9ebc21c",
+      {
+        input: {
+          image: imageUrl,
+          mask_prompt: "cabinets, countertop, backsplash, kitchen island, shelves, lighting fixtures",
+          negative_mask_prompt: "floor, ceiling, walls, window, door",
+          adjustment_factor: 0,
+        },
+      }
+    );
+    const maskUrl = (Array.isArray(maskOutput) ? maskOutput[0] : maskOutput) as string;
+
+    const renderPrompt = `Photorealistic interior design renovation.
+    Redesign the cabinets, countertop, backsplash tiles, and lighting fixtures.
     Style direction: ${style}. Colors: ${colorPalette}. ${prompt}.
-    Photorealistic, high quality, professional architectural visualization, Dubai apartment.`;
+    Seamlessly blend with the existing floor, ceiling, walls and room layout.
+    High quality, professional architectural visualization, Dubai apartment.`;
 
-    const negativePrompt = `change room structure, move walls, remove windows, remove doors,
-    different room layout, different room shape, different floor tiles, changed flooring,
-    new floor pattern, different floor color, replaced floor, different ceiling,
-    people, cartoon, sketch, unrealistic proportions, blurry, dark, ugly`;
-
-    // Use FLUX Depth Pro for structure preservation
+    // Use FLUX Fill Pro to inpaint only the masked area
     const prediction = await replicate.predictions.create({
-      model: "black-forest-labs/flux-depth-pro",
+      model: "black-forest-labs/flux-fill-pro",
       input: {
-        control_image: imageUrl,
+        image: imageUrl,
+        mask: maskUrl,
         prompt: renderPrompt,
-        negative_prompt: negativePrompt,
-        num_outputs: 1,
-        num_inference_steps: 50,
-        guidance_scale: 10,
-        prompt_strength: 0.55,
+        steps: 50,
+        guidance: 60,
         output_format: "jpg",
-        output_quality: 90,
       },
     });
 
