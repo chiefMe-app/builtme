@@ -134,6 +134,7 @@ export default function BuiltMe() {
   const [renders, setRenders] = useState<string[]>([]);
   const [renderLoading, setRenderLoading] = useState(false);
   const [roomPhoto, setRoomPhoto] = useState<File | null>(null);
+  const [roomPhotoUrl, setRoomPhotoUrl] = useState<string>("");
   const [renderPromptExtra, setRenderPromptExtra] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const floorPlanRef = useRef<HTMLInputElement>(null);
@@ -185,6 +186,22 @@ export default function BuiltMe() {
     setReferences(files);
   };
 
+  const handleRoomPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRoomPhoto(file);
+
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await fetch("/api/upload-photo", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.url) setRoomPhotoUrl(data.url);
+    } catch (err) {
+      console.error("Photo upload error:", err);
+    }
+  };
+
   const runAgents = async () => {
     setScreen("processing");
     setDoneSteps([]);
@@ -231,6 +248,7 @@ export default function BuiltMe() {
           result: parsed,
           title: parsed?.designConcept?.title,
           renders: [],
+          room_photo_url: roomPhotoUrl,
           created_at: new Date().toISOString(),
         });
       } catch (dbErr) {
@@ -252,7 +270,7 @@ export default function BuiltMe() {
     try {
       const formData = new FormData();
       formData.append("image", roomPhoto);
-      formData.append("prompt", prompt);
+      formData.append("prompt", prompt + (renderPromptExtra ? ". Additional: " + renderPromptExtra : ""));
       formData.append("style", activeResults?.styleProfile?.dominantStyle || "modern");
       formData.append("room", RENOVATION_CATEGORIES.find(c => c.id === category)?.label || "room");
       formData.append("colorPalette", activeResults?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
@@ -762,7 +780,9 @@ export default function BuiltMe() {
               <div className="serif" style={{ fontSize: 20, fontWeight: 400 }}>{results.designConcept?.title || "Your Design Concept"}</div>
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <div className="serif" style={{ fontSize: 18, color: "#C4A882", fontWeight: 600 }}>
+              <a href="/" style={{ fontSize: 13, color: "#666", textDecoration: "none", fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em" }}>HOME</a>
+              <a href="/projects" style={{ fontSize: 13, color: "#666", textDecoration: "none", fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em", marginLeft: 16 }}>MY PROJECTS</a>
+              <div className="serif" style={{ fontSize: 18, color: "#C4A882", fontWeight: 600, marginLeft: 16 }}>
                 AED {(results.costBreakdown?.total || 0).toLocaleString()}
               </div>
               <button className="btn-ghost" onClick={() => setScreen("configure")}>New project</button>
@@ -1004,105 +1024,104 @@ export default function BuiltMe() {
             {/* RENDERS TAB */}
             {activeTab === "renders" && (
               <div className="fade-in">
-                {renders.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "60px 0" }}>
+                {renders.length === 0 && (
+                  <div style={{ textAlign: "center", padding: "60px 0 24px" }}>
                     <div style={{ fontSize: 48, marginBottom: 16 }}>🎨</div>
                     <div className="serif" style={{ fontSize: 24, marginBottom: 8 }}>Generate AI Renders</div>
                     <p style={{ color: "#888", marginBottom: 24, fontSize: 14 }}>Upload a photo of your current room to see the AI transformation</p>
+                  </div>
+                )}
 
-                    <div
-                      style={{ border: "2px dashed #D4C9B8", borderRadius: 4, padding: 24, marginBottom: 24, cursor: "pointer", maxWidth: 400, margin: "0 auto 24px", background: roomPhoto ? "#FAF8F5" : "#FFF" }}
-                      onClick={() => roomPhotoRef.current?.click()}
-                    >
-                      <input ref={roomPhotoRef} type="file" accept="image/*" onChange={(e) => setRoomPhoto(e.target.files?.[0] || null)} style={{ display: "none" }} />
-                      {roomPhoto ? (
-                        <div>
-                          <img src={URL.createObjectURL(roomPhoto)} alt="Room" style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 4, marginBottom: 8 }} />
-                          <div style={{ fontSize: 12, color: "#AAA" }}>Click to change photo</div>
-                        </div>
-                      ) : (
-                        <div>
-                          <div style={{ fontSize: 32, marginBottom: 8 }}>📷</div>
-                          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload your current room photo</div>
-                          <div style={{ fontSize: 12, color: "#AAA" }}>JPG, PNG — any angle</div>
-                        </div>
-                      )}
-                    </div>
+                <div style={{ maxWidth: 400, margin: renders.length === 0 ? "0 auto 24px" : "0 0 28px" }}>
+                  <div
+                    style={{ border: "2px dashed #D4C9B8", borderRadius: 4, padding: 24, marginBottom: 16, cursor: "pointer", background: roomPhoto || roomPhotoUrl ? "#FAF8F5" : "#FFF" }}
+                    onClick={() => roomPhotoRef.current?.click()}
+                  >
+                    <input ref={roomPhotoRef} type="file" accept="image/*" onChange={handleRoomPhotoChange} style={{ display: "none" }} />
+                    {roomPhoto || roomPhotoUrl ? (
+                      <div>
+                        <img src={roomPhotoUrl || (roomPhoto ? URL.createObjectURL(roomPhoto) : "")} alt="Room" style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 4, marginBottom: 8 }} />
+                        <div style={{ fontSize: 12, color: "#AAA" }}>Click to change photo</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ fontSize: 32, marginBottom: 8 }}>📷</div>
+                        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload your current room photo</div>
+                        <div style={{ fontSize: 12, color: "#AAA" }}>JPG, PNG — any angle</div>
+                      </div>
+                    )}
+                  </div>
 
+                  <input
+                    className="input-field"
+                    value={renderPromptExtra}
+                    onChange={e => setRenderPromptExtra(e.target.value)}
+                    placeholder="Any specific changes for this render?"
+                    style={{ marginBottom: 12 }}
+                  />
+
+                  <div style={{ display: "flex", gap: 10, justifyContent: renders.length === 0 ? "center" : "flex-start", flexWrap: "wrap" }}>
                     <button
                       className="btn-primary"
                       onClick={() => generateRenders()}
                       disabled={renderLoading || !roomPhoto}
                       style={{ fontSize: 14, padding: "14px 36px" }}
                     >
-                      {renderLoading ? "Generating renders..." : "Generate renders →"}
+                      {renderLoading ? "Generating renders..." : renders.length === 0 ? "Generate renders →" : "Regenerate renders"}
                     </button>
+                    {renders.length > 0 && (
+                      <button
+                        className="btn-ghost"
+                        onClick={reAnalyseWithPrompt}
+                        disabled={renderLoading || !renderPromptExtra.trim()}
+                        style={{ fontSize: 14, padding: "14px 36px" }}
+                      >
+                        {renderLoading ? "Updating design..." : "Update design & render →"}
+                      </button>
+                    )}
                   </div>
-                ) : (
-                  renders.length > 0 && (
-                    <div className="fade-in">
-                      <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 20 }}>BEFORE → AFTER TRANSFORMATION</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-                        {/* BEFORE */}
-                        <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                          {roomPhoto && (
-                            <img src={URL.createObjectURL(roomPhoto)} alt="Before" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
-                          )}
-                          <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
-                            <span style={{ fontSize: 11, color: "#999" }}>Current space</span>
-                          </div>
-                        </div>
-                        {/* AFTER */}
-                        <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                          <img src={renders[0]} alt="After" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
-                          <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
-                            <a href={renders[0]} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
-                          </div>
+                </div>
+
+                {renders.length > 0 && (
+                  <div className="fade-in">
+                    <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 20 }}>BEFORE → AFTER TRANSFORMATION</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+                      {/* BEFORE */}
+                      <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                        {(roomPhotoUrl || roomPhoto) && (
+                          <img src={roomPhotoUrl || (roomPhoto ? URL.createObjectURL(roomPhoto) : "")} alt="Before" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
+                        )}
+                        <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
+                          <span style={{ fontSize: 11, color: "#999" }}>Current space</span>
                         </div>
                       </div>
-                      {renders.length > 1 && (
-                        <div>
-                          <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 12 }}>MORE CONCEPTS</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                            {renders.slice(1).map((img, i) => (
-                              <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                                <img src={img} alt={`Concept ${i + 2}`} style={{ width: "100%", height: 160, objectFit: "cover", display: "block" }} />
-                                <div style={{ padding: "8px 12px", background: "#FFF", display: "flex", justifyContent: "space-between" }}>
-                                  <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 2}</span>
-                                  <a href={img} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View →</a>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                      {/* AFTER */}
+                      <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                        <img src={renders[0]} alt="After" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
+                        <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
+                          <a href={renders[0]} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
                         </div>
-                      )}
-                      <div style={{ marginTop: 28, marginBottom: 20 }}>
-                        <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 8 }}>REFINE YOUR DESIGN</div>
-                        <input
-                          className="input-field"
-                          value={renderPromptExtra}
-                          onChange={e => setRenderPromptExtra(e.target.value)}
-                          placeholder="e.g. darker tones, add more plants, warmer lighting..."
-                          style={{ marginBottom: 12 }}
-                        />
-                        <button
-                          className="btn-primary"
-                          onClick={reAnalyseWithPrompt}
-                          disabled={renderLoading || !renderPromptExtra.trim()}
-                          style={{ fontSize: 13, padding: "12px 28px" }}
-                        >
-                          {renderLoading ? "Updating design..." : "Update design & render →"}
-                        </button>
-                      </div>
-                      <div style={{ textAlign: "center", marginTop: 20 }}>
-                        <button className="btn-ghost" onClick={() => generateRenders()} disabled={renderLoading}>
-                          {renderLoading ? "Generating..." : "Regenerate renders"}
-                        </button>
                       </div>
                     </div>
-                  )
+                    {renders.length > 1 && (
+                      <div>
+                        <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 12 }}>MORE CONCEPTS</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                          {renders.slice(1).map((img, i) => (
+                            <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                              <img src={img} alt={`Concept ${i + 2}`} style={{ width: "100%", height: 160, objectFit: "cover", display: "block" }} />
+                              <div style={{ padding: "8px 12px", background: "#FFF", display: "flex", justifyContent: "space-between" }}>
+                                <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 2}</span>
+                                <a href={img} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View →</a>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}

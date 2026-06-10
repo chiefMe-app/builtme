@@ -142,6 +142,7 @@ export async function POST(request: NextRequest) {
     // ALTER TABLE builtme_projects ADD COLUMN user_id uuid references auth.users;
     // ALTER TABLE builtme_projects ADD COLUMN title text;
     // ALTER TABLE builtme_projects ADD COLUMN renders jsonb;
+    // ALTER TABLE builtme_projects ADD COLUMN IF NOT EXISTS room_photo_url text;
     try {
       const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
