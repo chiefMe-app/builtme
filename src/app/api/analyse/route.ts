@@ -19,35 +19,13 @@ const SUPPORTED_IMAGE_TYPES = new Set([
 ]);
 
 function buildPrompt(category: string, budget: string, prompt: string) {
-  return `You are BuiltMe AI, a Dubai renovation assistant. Generate a renovation package as JSON ONLY (no markdown, no backticks).
+  return `You are BuiltMe AI. Generate a Dubai home renovation package as valid JSON ONLY. No markdown, no backticks, no explanation. Start with { and end with }.
 
-PROJECT: ${category} renovation, ${budget} budget, Dubai UAE
+PROJECT: ${category}, ${budget}, Dubai UAE
 VISION: "${prompt || "Modern, clean and functional space"}"
 
-Respond with ONLY this JSON structure, keep each array to maximum 3 items:
-{
-  "styleProfile": {
-    "dominantStyle": "style name",
-    "colorPalette": [{"name": "color name", "hex": "#XXXXXX", "usage": "where used"}],
-    "moodKeywords": ["word1", "word2", "word3"],
-    "designDirection": "2 sentence description"
-  },
-  "designConcept": {
-    "title": "concept name",
-    "description": "2 sentence description",
-    "beforeAfterNarrative": "one sentence"
-  },
-  "materials": [
-    {"zone": "zone", "item": "item", "specification": "spec", "supplier": "Dubai supplier", "supplierArea": "area", "priceRange": "AED XX-XX", "quantity": "qty", "totalCost": "AED XXXXX"}
-  ],
-  "furniture": [
-    {"item": "piece", "brand": "brand", "model": "model", "priceAED": 0, "buyLink": "https://", "alternative": "alt brand", "altPriceAED": 0}
-  ],
-  "costBreakdown": {"materials": 0, "furniture": 0, "labour": 0, "contingency": 0, "total": 0, "currency": "AED"},
-  "timeline": [{"week": "Week 1", "tasks": ["task1", "task2"]}],
-  "supplierMap": [{"name": "supplier", "category": "category", "area": "Dubai area", "website": "url"}],
-  "nextSteps": ["step1", "step2", "step3"]
-}`;
+Return ONLY this JSON, max 3 items per array:
+{"styleProfile":{"dominantStyle":"","colorPalette":[{"name":"","hex":"","usage":""}],"moodKeywords":["","",""],"designDirection":""},"designConcept":{"title":"","description":"","beforeAfterNarrative":""},"materials":[{"zone":"","item":"","specification":"","supplier":"","supplierArea":"","priceRange":"","quantity":"","totalCost":""}],"furniture":[{"item":"","brand":"","model":"","priceAED":0,"buyLink":"","alternative":"","altPriceAED":0}],"costBreakdown":{"materials":0,"furniture":0,"labour":0,"contingency":0,"total":0,"currency":"AED"},"timeline":[{"week":"Week 1","tasks":["",""]}],"supplierMap":[{"name":"","category":"","area":"","website":""}],"nextSteps":["","",""]}`;
 }
 
 export async function POST(request: NextRequest) {
@@ -122,7 +100,7 @@ export async function POST(request: NextRequest) {
 
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 1500,
+      max_tokens: 4000,
       messages: [{ role: "user", content }],
     });
 
