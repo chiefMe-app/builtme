@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
     const category = String(formData.get("category") ?? "");
     const budget = String(formData.get("budget") ?? "");
     const prompt = String(formData.get("prompt") ?? "");
+    const userId = formData.get("userId") ? String(formData.get("userId")) : null;
 
     const floorPlan = formData.get("floorPlan");
     const referenceImages = formData
@@ -137,16 +138,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Run once in the Supabase SQL editor to support user-owned projects:
+    // ALTER TABLE builtme_projects ADD COLUMN user_id uuid references auth.users;
+    // ALTER TABLE builtme_projects ADD COLUMN title text;
+    // ALTER TABLE builtme_projects ADD COLUMN renders jsonb;
     try {
       const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
       );
       await supabase.from("builtme_projects").insert({
+        user_id: userId,
         category,
         budget,
         prompt,
         result,
+        title: (result as { designConcept?: { title?: string } })?.designConcept?.title,
+        renders: [],
         created_at: new Date().toISOString(),
       });
     } catch (dbErr) {

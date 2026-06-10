@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import type { User } from "@supabase/supabase-js";
 
 interface ColorSwatch {
   name: string;
@@ -130,9 +132,43 @@ export default function BuiltMe() {
   const [renders, setRenders] = useState<string[]>([]);
   const [renderLoading, setRenderLoading] = useState(false);
   const [roomPhoto, setRoomPhoto] = useState<File | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const floorPlanRef = useRef<HTMLInputElement>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotoRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // If a project was opened from "My Projects", load it straight into the results screen
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem("builtme_load_project") !== "1") return;
+
+    try {
+      const storedResults = localStorage.getItem("builtme_results");
+      if (storedResults) setResults(JSON.parse(storedResults));
+      const storedRenders = localStorage.getItem("builtme_renders");
+      if (storedRenders) {
+        const parsed = JSON.parse(storedRenders);
+        if (Array.isArray(parsed)) setRenders(parsed);
+      }
+      setScreen("results");
+    } catch (err) {
+      console.error("Failed to load project:", err);
+    }
+
+    localStorage.removeItem("builtme_load_project");
+  }, []);
 
   const handleFloorPlan = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -164,6 +200,7 @@ export default function BuiltMe() {
       formData.append("category", categoryLabel);
       formData.append("budget", budgetLabel);
       formData.append("prompt", prompt);
+      if (user?.id) formData.append("userId", user.id);
       if (floorPlan) formData.append("floorPlan", floorPlan);
       for (const ref of references.slice(0, 3)) {
         formData.append("referenceImages", ref);
@@ -179,6 +216,21 @@ export default function BuiltMe() {
       const parsed = data.result as BuiltMeResult;
       setResults(parsed);
       localStorage.setItem("builtme_results", JSON.stringify(parsed));
+
+      try {
+        await supabase.from("builtme_projects").insert({
+          user_id: user?.id,
+          category: categoryLabel,
+          budget: budgetLabel,
+          prompt,
+          result: parsed,
+          title: parsed?.designConcept?.title,
+          renders: [],
+          created_at: new Date().toISOString(),
+        });
+      } catch (dbErr) {
+        console.error("Failed to save project:", dbErr);
+      }
     } catch (err) {
       console.error(err);
       setResults({ error: true });
@@ -221,6 +273,18 @@ export default function BuiltMe() {
             (output && typeof output === "object") ? Object.values(output) : [];
           setRenders(imagesArray as string[]);
           localStorage.setItem("builtme_renders", JSON.stringify(imagesArray));
+
+          try {
+            await supabase
+              .from("builtme_projects")
+              .update({ renders: imagesArray })
+              .eq("user_id", user?.id)
+              .order("created_at", { ascending: false })
+              .limit(1);
+          } catch (dbErr) {
+            console.error("Failed to update project renders:", dbErr);
+          }
+
           break;
         } else if (statusData.status === "failed" || statusData.error) {
           throw new Error(statusData.error || "Render failed");
@@ -431,7 +495,20 @@ export default function BuiltMe() {
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.15em" }}>DUBAI</div>
+              <a href="/projects" className="btn-ghost" style={{ padding: "10px 24px", fontSize: 13, textDecoration: "none", display: "inline-block" }}>My Projects</a>
               <button className="btn-primary" onClick={() => setScreen("configure")} style={{ padding: "10px 24px", fontSize: 13 }}>Start your renovation</button>
+              {user && (
+                <button
+                  className="btn-ghost"
+                  style={{ padding: "10px 24px", fontSize: 13 }}
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    window.location.href = "/auth";
+                  }}
+                >
+                  Sign out
+                </button>
+              )}
             </div>
           </nav>
 
@@ -928,7 +1005,7 @@ export default function BuiltMe() {
                           <img src={img} alt={`Render ${i + 1}`} style={{ width: "100%", height: 300, objectFit: "cover", display: "block" }} />
                           <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between" }}>
                             <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 1}</span>
-                            <a href={img} download={`builtme-render-${i + 1}.png`} style={{ fontSize: 12, color: "#C4A882", textDecoration: "none" }}>Download →</a>
+                            <a href={img} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#C4A882", textDecoration: "none" }}>Download →</a>
                           </div>
                         </div>
                       ))}
