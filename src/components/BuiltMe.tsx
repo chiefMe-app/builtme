@@ -127,6 +127,8 @@ export default function BuiltMe() {
   const [results, setResults] = useState<BuiltMeResult | null>(null);
   const [activeTab, setActiveTab] = useState("concept");
   const [isLoading, setIsLoading] = useState(false);
+  const [renders, setRenders] = useState<string[]>([]);
+  const [renderLoading, setRenderLoading] = useState(false);
   const floorPlanRef = useRef<HTMLInputElement>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
 
@@ -182,6 +184,29 @@ export default function BuiltMe() {
 
     setIsLoading(false);
     setScreen("results");
+  };
+
+  const generateRenders = async () => {
+    setRenderLoading(true);
+    try {
+      const response = await fetch("/api/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: prompt,
+          style: results?.styleProfile?.dominantStyle,
+          room: RENOVATION_CATEGORIES.find(c => c.id === category)?.label,
+          colorPalette: results?.styleProfile?.colorPalette
+            ?.map((c: { name: string }) => c.name)
+            .join(", "),
+        }),
+      });
+      const data = await response.json();
+      setRenders(data.images || []);
+    } catch (err) {
+      console.error(err);
+    }
+    setRenderLoading(false);
   };
 
   const totalCost = results?.costBreakdown?.total || 0;
@@ -608,6 +633,7 @@ export default function BuiltMe() {
               { id: "furniture", label: "Furniture" },
               { id: "suppliers", label: "Dubai Suppliers" },
               { id: "timeline", label: "Timeline" },
+              { id: "renders", label: "AI Renders" },
             ].map(t => (
               <button key={t.id} className={`tab ${activeTab === t.id ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
                 {t.label}
@@ -825,6 +851,41 @@ export default function BuiltMe() {
                         <div style={{ fontSize: 14, color: "#E8E0D0", fontWeight: 300 }}>{step}</div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* RENDERS TAB */}
+            {activeTab === "renders" && (
+              <div className="fade-in">
+                {renders.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 0" }}>
+                    <div style={{ fontSize: 48, marginBottom: 16 }}>🎨</div>
+                    <div className="serif" style={{ fontSize: 24, marginBottom: 8 }}>Generate AI Renders</div>
+                    <p style={{ color: "#888", marginBottom: 24, fontSize: 14 }}>See how your space will look after renovation</p>
+                    <button className="btn-primary" onClick={generateRenders} disabled={renderLoading} style={{ fontSize: 14, padding: "14px 36px" }}>
+                      {renderLoading ? "Generating renders..." : "Generate renders →"}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+                      {renders.map((img, i) => (
+                        <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                          <img src={img} alt={`Render ${i + 1}`} style={{ width: "100%", height: 300, objectFit: "cover", display: "block" }} />
+                          <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between" }}>
+                            <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 1}</span>
+                            <a href={img} download={`builtme-render-${i + 1}.png`} style={{ fontSize: 12, color: "#C4A882", textDecoration: "none" }}>Download →</a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <button className="btn-ghost" onClick={generateRenders} disabled={renderLoading}>
+                        {renderLoading ? "Generating..." : "Regenerate renders"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
