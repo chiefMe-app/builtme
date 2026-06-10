@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const output = await replicate.run(
-      "stability-ai/sdxl:39ed52f2319f9c47eb2f80e0ea41e2e0423bbecc",
+      "stability-ai/stable-diffusion-3.5-large",
       {
         input: {
           prompt: renderPrompt,
