@@ -54,8 +54,9 @@ export async function POST(req: NextRequest) {
     Photorealistic, high quality, professional architectural visualization, Dubai apartment.`;
 
     const negativePrompt = `change room structure, move walls, remove windows, remove doors,
-    different room layout, different room shape, people, cartoon, sketch,
-    unrealistic proportions, blurry, dark, ugly`;
+    different room layout, different room shape, different floor tiles, changed flooring,
+    new floor pattern, different floor color, replaced floor, different ceiling,
+    people, cartoon, sketch, unrealistic proportions, blurry, dark, ugly`;
 
     // Use FLUX Depth Pro for structure preservation
     const prediction = await replicate.predictions.create({
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
         num_outputs: 1,
         num_inference_steps: 50,
         guidance_scale: 10,
-        prompt_strength: 0.75,
+        prompt_strength: 0.55,
         output_format: "jpg",
         output_quality: 90,
       },
