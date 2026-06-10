@@ -774,19 +774,23 @@ export default function BuiltMe() {
       {screen === "results" && results && !results.error && (
         <div className="fade-in">
           {/* Header */}
-          <div style={{ padding: "20px 32px", borderBottom: "1px solid #EAE4D9", background: "#FFF", position: "sticky", top: 0, zIndex: 100, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
+          <div style={{ padding: "20px 32px", borderBottom: "1px solid #EAE4D9", background: "#FFF", position: "sticky", top: 0, zIndex: 100, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
+            <div style={{ minWidth: 0, marginRight: 24 }}>
               <div className="mono" style={{ fontSize: 10, color: "#C4A882", marginBottom: 4 }}>YOUR RENOVATION PACKAGE</div>
               <div className="serif" style={{ fontSize: 20, fontWeight: 400 }}>{results.designConcept?.title || "Your Design Concept"}</div>
             </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <a href="/" style={{ fontSize: 13, color: "#666", textDecoration: "none", fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em" }}>HOME</a>
-              <a href="/projects" style={{ fontSize: 13, color: "#666", textDecoration: "none", fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em", marginLeft: 16 }}>MY PROJECTS</a>
-              <div className="serif" style={{ fontSize: 18, color: "#C4A882", fontWeight: 600, marginLeft: 16 }}>
+            <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+                <a href="/" style={{ fontSize: 13, color: "#666", textDecoration: "none", fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em" }}>HOME</a>
+                <a href="/projects" style={{ fontSize: 13, color: "#666", textDecoration: "none", fontFamily: "'DM Mono', monospace", letterSpacing: "0.08em" }}>MY PROJECTS</a>
+              </div>
+              <div className="serif" style={{ fontSize: 18, color: "#C4A882", fontWeight: 600 }}>
                 AED {(results.costBreakdown?.total || 0).toLocaleString()}
               </div>
-              <button className="btn-ghost" onClick={() => setScreen("configure")}>New project</button>
-              <button className="btn-primary" onClick={() => window.open("/pdf", "_blank")} style={{ padding: "10px 20px", fontSize: 13 }}>Download PDF</button>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <button className="btn-ghost" onClick={() => setScreen("configure")}>New project</button>
+                <button className="btn-primary" onClick={() => window.open("/pdf", "_blank")} style={{ padding: "10px 20px", fontSize: 13 }}>Download PDF</button>
+              </div>
             </div>
           </div>
 
