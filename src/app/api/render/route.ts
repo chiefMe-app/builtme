@@ -18,7 +18,6 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const prompt = formData.get("prompt") as string;
     const style = formData.get("style") as string;
-    const room = formData.get("room") as string;
     const colorPalette = formData.get("colorPalette") as string;
     const imageFile = formData.get("image") as File | null;
 
@@ -49,12 +48,10 @@ export async function POST(req: NextRequest) {
     const imageUrl = urlData.publicUrl;
 
     const renderPrompt = `Interior design renovation of this exact room.
-    IMPORTANT INSTRUCTIONS: ${prompt}.
-    Style: ${style}, Colors: ${colorPalette}, Room: ${room}.
-    Keep the exact same room layout, walls, columns, windows, doors.
-    Do not add or remove structural elements.
-    Only change: materials, finishes, cabinet colors, countertops, backsplash, lighting fixtures, decor.
-    Photorealistic, high quality, professional architectural visualization.`;
+    CRITICAL - DO NOT CHANGE: the floor tiles/flooring material, the ceiling height and ceiling material, suspended ceiling tiles if present, room dimensions, walls position, windows position, doors position.
+    CHANGE ONLY: cabinet colors and style, countertop material, backsplash tiles, lighting fixtures, decorative items, plants.
+    Style direction: ${style}. Colors: ${colorPalette}. ${prompt}.
+    Photorealistic, high quality, professional architectural visualization, Dubai apartment.`;
 
     const negativePrompt = `change room structure, move walls, remove windows, remove doors,
     different room layout, different room shape, people, cartoon, sketch,
