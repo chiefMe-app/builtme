@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 
 // Forwards the current pathname to Server Components (e.g. layout.tsx) via a
 // request header, since the App Router doesn't expose it directly.
-export function proxy(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", request.nextUrl.pathname);
 
