@@ -73,6 +73,20 @@ export default function ProjectsPage() {
     router.push("/auth");
   };
 
+  const handleDeleteProject = async (e: React.MouseEvent, projectId: string | number) => {
+    e.stopPropagation();
+    if (!confirm("Delete this project? This cannot be undone.")) return;
+
+    try {
+      const { error } = await supabase.from("builtme_projects").delete().eq("id", projectId);
+      if (error) throw error;
+      setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    } catch (err) {
+      console.error("Failed to delete project:", err);
+      alert("Failed to delete project");
+    }
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "#F7F4EF", color: "#1A1A1A", fontFamily: "'DM Sans', sans-serif" }}>
       <style>{`
@@ -138,8 +152,30 @@ export default function ProjectsPage() {
           cursor: pointer;
           transition: all 0.2s;
           text-align: left;
+          position: relative;
         }
         .project-card:hover { border-color: #C4A882; transform: translateY(-2px); }
+
+        .project-delete {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          border: 1px solid #EAE4D9;
+          background: rgba(255, 255, 255, 0.9);
+          color: #B45757;
+          font-size: 14px;
+          line-height: 1;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+          z-index: 2;
+        }
+        .project-delete:hover { background: #B45757; color: #FFF; border-color: #B45757; }
       `}</style>
 
       {/* Nav */}
@@ -189,7 +225,22 @@ export default function ProjectsPage() {
               });
 
               return (
-                <button key={project.id} className="project-card" onClick={() => openProject(project)}>
+                <div
+                  key={project.id}
+                  className="project-card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openProject(project)}
+                  onKeyDown={(e) => { if (e.key === "Enter") openProject(project); }}
+                >
+                  <button
+                    className="project-delete"
+                    onClick={(e) => handleDeleteProject(e, project.id)}
+                    title="Delete project"
+                    aria-label="Delete project"
+                  >
+                    ✕
+                  </button>
                   {firstRender ? (
                     <img src={firstRender} alt={title} style={{ width: "100%", height: 200, objectFit: "cover", display: "block" }} />
                   ) : (
@@ -213,7 +264,7 @@ export default function ProjectsPage() {
                       <span className="btn-ghost" style={{ fontSize: 12, padding: "8px 18px" }}>View project</span>
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
