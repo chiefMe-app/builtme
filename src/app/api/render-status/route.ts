@@ -20,9 +20,19 @@ export async function GET(req: NextRequest) {
     console.log("Prediction status:", prediction.status);
     console.log("Prediction output:", JSON.stringify(prediction.output));
 
+    const output = prediction.output;
+    let images: string[] = [];
+    if (Array.isArray(output)) {
+      images = output;
+    } else if (typeof output === "string") {
+      images = [output];
+    } else if (output && typeof output === "object") {
+      images = Object.values(output) as string[];
+    }
+
     return NextResponse.json({
       status: prediction.status,
-      images: prediction.output || [],
+      images,
       error: prediction.error,
     });
   } catch (err) {
