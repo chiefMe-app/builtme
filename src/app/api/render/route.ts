@@ -58,19 +58,18 @@ export async function POST(req: NextRequest) {
     different room layout, different room shape, people, cartoon, sketch,
     unrealistic proportions, blurry, dark, ugly`;
 
-    // Use ControlNet for structure preservation
+    // Use FLUX Depth Pro for structure preservation
     const prediction = await replicate.predictions.create({
-      version: "854e8727697a057c525cdb45ab037f64ecca770a4e5e7e00c59471a42f35b7cf",
+      model: "black-forest-labs/flux-depth-pro",
       input: {
-        image: imageUrl,
+        control_image: imageUrl,
         prompt: renderPrompt,
         negative_prompt: negativePrompt,
-        num_outputs: 2,
-        num_inference_steps: 30,
-        guidance_scale: 8,
-        controlnet_conditioning_scale: 0.8,
-        strength: 0.7,
-        seed: Math.floor(Math.random() * 1000000),
+        num_outputs: 1,
+        num_inference_steps: 28,
+        guidance_scale: 3.5,
+        output_format: "webp",
+        output_quality: 90,
       },
     });
 
