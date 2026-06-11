@@ -232,6 +232,21 @@ const AGENT_STEPS = [
   { id: "package", label: "Compiling your renovation package", icon: "📦" },
 ];
 
+const CHANGE_OPTIONS = [
+  { id: "sofa", label: "Sofa & seating", icon: "🛋️" },
+  { id: "dining", label: "Dining table & chairs", icon: "🍽️" },
+  { id: "lighting", label: "Lighting", icon: "💡" },
+  { id: "wall_colour", label: "Wall colour", icon: "🎨" },
+  { id: "wallpaper", label: "Wallpaper / wall texture", icon: "🖼️" },
+  { id: "rug", label: "Rug", icon: "🟫" },
+  { id: "curtains", label: "Curtains / blinds", icon: "🪟" },
+  { id: "coffee_table", label: "Coffee table", icon: "☕" },
+  { id: "tv_unit", label: "TV unit", icon: "📺" },
+  { id: "decor", label: "Decor & accessories", icon: "🌿" },
+  { id: "layout", label: "Furniture layout / positions", icon: "📐" },
+  { id: "existing_only", label: "Rearrange existing only", icon: "↔️" },
+];
+
 const getFurnitureImage = (item: string) => {
   const term = item.toLowerCase();
   if (term.includes("handle") || term.includes("knob") || term.includes("pull"))
@@ -360,6 +375,8 @@ export default function BuiltMe() {
   const [extractedProducts, setExtractedProducts] = useState<ExtractedProduct[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [extractingProducts, setExtractingProducts] = useState(false);
+  const [allRenders, setAllRenders] = useState<{ photoIndex: number; url: string }[]>([]);
+  const [whatToChange, setWhatToChange] = useState<string[]>([]);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -592,24 +609,43 @@ export default function BuiltMe() {
   };
 
   const buildChangeInstruction = () => {
+    const changeLabels: Record<string, string> = {
+      sofa: "sofa and seating",
+      dining: "dining table and chairs",
+      lighting: "lighting fixtures and pendants",
+      wall_colour: "wall paint colour",
+      wallpaper: "wall texture or wallpaper",
+      rug: "rug",
+      curtains: "curtains and window treatments",
+      coffee_table: "coffee table",
+      tv_unit: "TV unit and media console",
+      decor: "decorative accessories and plants",
+      layout: "furniture arrangement and layout",
+      existing_only: "rearrange existing furniture only, do not add new items",
+    };
+
+    if (whatToChange.length > 0) {
+      const changes = whatToChange.map(id => changeLabels[id]).filter(Boolean);
+      const keepSame = whatToChange.includes("existing_only")
+        ? "Do not add any new furniture. Only rearrange what is already there."
+        : "Keep everything else EXACTLY the same — walls, floor, ceiling, windows, and any furniture NOT in the change list.";
+      return `ONLY change: ${changes.join(", ")}. ${keepSame}`;
+    }
+
+    // Fall back to user type selections
     if (savedUserType === "minor_reno" && selectedMinorItems.length > 0) {
       const changeMap: Record<string, string> = {
         countertop_replace: "countertop", countertop_wrap: "countertop surface",
-        cabinet_repaint: "cabinet color", cabinet_wrap: "cabinet doors",
+        cabinet_repaint: "cabinet colour", cabinet_wrap: "cabinet doors",
         backsplash_tile: "backsplash", backsplash_sticker: "backsplash",
         floor_real: "floor tiles", floor_sticker: "floor",
         lighting: "lighting", handles: "handles and taps",
-        wall_tile_replace: "wall tiles", wall_tile_paint: "wall tiles",
-        floor_tile_replace: "floor tiles", vanity: "vanity unit",
-        mirror: "mirror", shower_screen: "shower screen", accessories: "accessories",
       };
       const changes = selectedMinorItems.map(id => changeMap[id]).filter(Boolean);
-      return `ONLY change these: ${changes.join(", ")}. Keep everything else EXACTLY the same — same walls, same ceiling, same floor (unless floor is in the change list), same appliances, same layout.`;
+      return `ONLY change: ${changes.join(", ")}. Keep everything else exactly the same.`;
     }
-    if (savedUserType === "styling" && selectedItems.length > 0) {
-      return `ONLY change these items: ${selectedItems.join(", ")}. Keep walls, floor, ceiling, and built-in elements exactly the same.`;
-    }
-    return "";
+
+    return "Keep walls, floor, ceiling, and structural elements exactly the same.";
   };
 
   const extractProductsFromReferences = async () => {
@@ -644,116 +680,94 @@ export default function BuiltMe() {
     setExtractingProducts(false);
   };
 
-  const generateRenders = async (updatedResults?: typeof results) => {
-    const photoToUse = savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0] || roomPhoto || null;
-    if (!photoToUse) {
-      alert("No room photo found. Please start a new project and upload photos.");
+  const generateRenders = async () => {
+    if (savedRoomPhotos.length === 0) {
+      alert("No room photos found.");
       return;
     }
-    const activeResults = updatedResults || results;
     setRenderLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("image", photoToUse);
+    setRenders([]);
+    setAllRenders([]);
 
-      const materialsSummary = activeResults?.materials
-        ?.map((m: { item: string; specification: string }) => `${m.item}: ${m.specification}`)
-        .join(", ") || "";
+    const productsPrompt = selectedProducts.length > 0
+      ? `Place these specific items: ${extractedProducts
+          .filter(p => selectedProducts.includes(p.name))
+          .map(p => p.renderDescription || p.name)
+          .join(", ")}.`
+      : "";
 
-      const colorSummary = activeResults?.styleProfile?.colorPalette
-        ?.map((c: { name: string; hex: string }) => `${c.name} ${c.hex}`)
-        .join(", ") || "";
+    const changeInstruction = buildChangeInstruction();
+    const fullPrompt = `${prompt || ""}. ${productsPrompt} ${changeInstruction} ${renderPromptExtra || ""}`.trim();
 
-      const changeInstruction = buildChangeInstruction();
+    // Generate render for each uploaded photo (max 4)
+    const photosToRender = savedRoomPhotos.slice(0, 4);
+    const collected: { photoIndex: number; url: string }[] = [];
 
-      const productsPrompt = selectedProducts.length > 0
-        ? `Place these specific items in the room: ${extractedProducts
-            .filter(p => selectedProducts.includes(p.name))
-            .map(p => p.renderDescription || p.name)
-            .join(", ")}.`
-        : "";
+    for (let i = 0; i < photosToRender.length; i++) {
+      try {
+        const formData = new FormData();
+        formData.append("image", photosToRender[i]);
+        formData.append("prompt", fullPrompt);
+        formData.append("style", results?.styleProfile?.dominantStyle || "");
+        formData.append("room", results?.spaceAnalysis?.roomType || getCategoryLabel() || "living room");
+        formData.append("colorPalette", results?.styleProfile?.colorPalette?.map((c: { name: string }) => c.name).join(", ") || "");
 
-      const fullPrompt = `${prompt}.
-Use these exact materials: ${materialsSummary}.
-Color palette: ${colorSummary}.
-${productsPrompt}
-${changeInstruction}
-${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
+        const renderRes = await fetch("/api/render", { method: "POST", body: formData });
+        const renderData = await renderRes.json();
+        if (renderData.error) continue;
 
-      formData.append("prompt", fullPrompt);
-      formData.append("style", activeResults?.styleProfile?.dominantStyle || "modern");
-      const roomType = activeResults?.spaceAnalysis?.roomType || activeResults?.spaceAnalysis?.rooms?.[0]?.room || getCategoryLabel() || "living room";
-      formData.append("room", roomType);
-      formData.append("colorPalette", activeResults?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
+        const predictionId = renderData.predictionId;
+        const provider = renderData.provider || "fal";
 
-      const response = await fetch("/api/render", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
+        // Poll for this prediction
+        let attempts = 0;
+        while (attempts < 60) {
+          await new Promise(r => setTimeout(r, 3000));
+          const statusRes = await fetch(`/api/render-status?id=${predictionId}&provider=${provider}`);
+          const statusData = await statusRes.json();
 
-      const predictionId = data.predictionId;
-      const provider = data.provider || "replicate";
+          if (statusData.status === "succeeded" && statusData.images?.length > 0) {
+            const imgUrl = statusData.images[0];
 
-      // Poll for result
-      let attempts = 0;
-      while (attempts < 60) {
-        await new Promise(r => setTimeout(r, 3000));
-        const statusRes = await fetch(`/api/render-status?id=${predictionId}&provider=${provider}`);
-        const statusData = await statusRes.json();
-
-        if (statusData.status === "succeeded") {
-          const output = statusData.images;
-          const tempUrls = Array.isArray(output) ? output :
-            (output && typeof output === "object") ? Object.values(output) : [];
-
-          // Upload renders to Supabase Storage for permanent URLs
-          const permanentUrls: string[] = [];
-          for (const tempUrl of tempUrls as string[]) {
+            // Save to Supabase Storage
             try {
-              const uploadRes = await fetch("/api/save-render", {
+              const saveRes = await fetch("/api/save-render", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url: tempUrl }),
+                body: JSON.stringify({ url: imgUrl }),
               });
-              const uploadData = await uploadRes.json();
-              if (uploadData.permanentUrl) {
-                permanentUrls.push(uploadData.permanentUrl);
-              } else {
-                permanentUrls.push(tempUrl); // fallback to temp URL
-              }
+              const saveData = await saveRes.json();
+              const permanentUrl = saveData.permanentUrl || imgUrl;
+
+              collected.push({ photoIndex: i, url: permanentUrl });
+              setAllRenders([...collected]);
+              // Also keep renders array updated with first render
+              if (i === 0) setRenders([permanentUrl]);
             } catch {
-              permanentUrls.push(tempUrl); // fallback
+              collected.push({ photoIndex: i, url: imgUrl });
+              setAllRenders([...collected]);
             }
+            break;
           }
-
-          setRenders(permanentUrls);
-          localStorage.setItem("builtme_renders", JSON.stringify(permanentUrls));
-
-          try {
-            if (savedProjectId) {
-              await supabase
-                .from("builtme_projects")
-                .update({ renders: permanentUrls })
-                .eq("id", savedProjectId);
-            }
-          } catch (dbErr) {
-            console.error("Failed to update project renders:", dbErr);
-          }
-
-          break;
-        } else if (statusData.status === "failed" || statusData.error) {
-          throw new Error(statusData.error || "Render failed");
+          if (statusData.status === "failed") break;
+          attempts++;
         }
-        attempts++;
+      } catch (err) {
+        console.error(`Render ${i} failed:`, err);
       }
-
-      if (attempts >= 60) throw new Error("Render timed out");
-    } catch (err) {
-      console.error(err);
-      alert(err instanceof Error ? err.message : "Render failed");
     }
+
+    localStorage.setItem("builtme_renders", JSON.stringify(collected.map(r => r.url)));
+
+    // Save all renders to Supabase
+    if (savedProjectId && collected.length > 0) {
+      try {
+        await supabase.from("builtme_projects").update({ renders: collected.map(r => r.url) }).eq("id", savedProjectId);
+      } catch (dbErr) {
+        console.error("Failed to update project renders:", dbErr);
+      }
+    }
+
     setRenderLoading(false);
   };
 
@@ -787,7 +801,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
       }
 
       // Regenerate render with new analysis
-      await generateRenders(data.result);
+      await generateRenders();
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : "Failed to update design");
@@ -2388,6 +2402,39 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 {/* Step 3: Render */}
                 {renderStep === "render" && (
                   <div>
+                    {/* What to change */}
+                    <div style={{ marginBottom: 20 }}>
+                      <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                        WHAT DO YOU WANT TO CHANGE?
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {CHANGE_OPTIONS.map(opt => (
+                          <button
+                            key={opt.id}
+                            onClick={() => setWhatToChange(prev =>
+                              prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id]
+                            )}
+                            style={{
+                              padding: "8px 14px",
+                              background: whatToChange.includes(opt.id) ? "#1A1A1A" : "#FFF",
+                              color: whatToChange.includes(opt.id) ? "#F7F4EF" : "#666",
+                              border: `1px solid ${whatToChange.includes(opt.id) ? "#1A1A1A" : "#EAE4D9"}`,
+                              borderRadius: 20, cursor: "pointer",
+                              fontSize: 12, fontFamily: "'DM Sans', sans-serif",
+                              transition: "all 0.2s",
+                            }}
+                          >
+                            {opt.icon} {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      {whatToChange.length > 0 && (
+                        <div style={{ fontSize: 12, color: "#AAA", marginTop: 8 }}>
+                          {whatToChange.length} item{whatToChange.length > 1 ? "s" : ""} selected — only these will change in the render
+                        </div>
+                      )}
+                    </div>
+
                     {/* Room photos strip */}
                     {savedRoomPhotos.length > 0 ? (
                       <div style={{ marginBottom: 20 }}>
@@ -2485,43 +2532,55 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                       )}
                     </div>
 
-                    {/* Before/After */}
-                    {renders.length > 0 && (
+                    {/* Loading states */}
+                    {renderLoading && allRenders.length === 0 && (
+                      <div style={{ textAlign: "center", padding: "40px 0" }}>
+                        <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>Generating renders for {savedRoomPhotos.slice(0, 4).length} photos...</div>
+                        <div style={{ fontSize: 12, color: "#AAA" }}>This may take 1-2 minutes</div>
+                      </div>
+                    )}
+                    {renderLoading && allRenders.length > 0 && (
+                      <div style={{ padding: "12px 16px", background: "#FAF8F5", borderRadius: 4, marginBottom: 16, fontSize: 13, color: "#888" }}>
+                        ✓ {allRenders.length} render{allRenders.length > 1 ? "s" : ""} done — generating more...
+                      </div>
+                    )}
+
+                    {/* Before/After — all angles */}
+                    {allRenders.length > 0 && (
                       <div className="fade-in">
                         <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
-                          BEFORE → AFTER TRANSFORMATION
+                          BEFORE → AFTER — {allRenders.length} angle{allRenders.length > 1 ? "s" : ""}
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-                          <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                            {(savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0] || roomPhotoUrl || roomPhoto) && (
-                              <img src={savedRoomPhotos[selectedRenderPhoto] ? URL.createObjectURL(savedRoomPhotos[selectedRenderPhoto]) : savedRoomPhotos[0] ? URL.createObjectURL(savedRoomPhotos[0]) : roomPhotoUrl || (roomPhoto ? URL.createObjectURL(roomPhoto) : "")} alt="Before" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
-                            )}
-                            <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between" }}>
-                              <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
-                              <span style={{ fontSize: 11, color: "#999" }}>Current space</span>
-                            </div>
-                          </div>
-                          <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                            <img src={renders[0]} alt="After" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
-                            <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between" }}>
-                              <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
-                              <a href={renders[0]} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
-                            </div>
-                          </div>
-                        </div>
-                        {renders.length > 1 && (
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                            {renders.slice(1).map((img, i) => (
-                              <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                                <img src={img} alt={`Concept ${i + 2}`} style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }} />
-                                <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between" }}>
-                                  <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 2}</span>
-                                  <a href={img} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View →</a>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                          {allRenders.map((render, i) => (
+                            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                              {/* Before */}
+                              <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                                <img
+                                  src={URL.createObjectURL(savedRoomPhotos[render.photoIndex])}
+                                  alt="Before"
+                                  style={{ width: "100%", height: 240, objectFit: "cover", display: "block" }}
+                                />
+                                <div style={{ padding: "8px 14px", display: "flex", justifyContent: "space-between", background: "#FFF" }}>
+                                  <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
+                                  <span style={{ fontSize: 11, color: "#999" }}>Angle {render.photoIndex + 1}</span>
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        )}
+                              {/* After */}
+                              <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                                <img
+                                  src={render.url}
+                                  alt="After"
+                                  style={{ width: "100%", height: 240, objectFit: "cover", display: "block" }}
+                                />
+                                <div style={{ padding: "8px 14px", display: "flex", justifyContent: "space-between", background: "#FFF" }}>
+                                  <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
+                                  <a href={render.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
