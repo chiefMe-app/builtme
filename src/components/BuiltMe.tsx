@@ -1258,7 +1258,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 </div>
 
                 {/* Contractor types needed */}
-                <ContractorSection results={results} prompt={prompt} category={category} user={user} />
+                <ContractorSection results={results} prompt={prompt} category={category} user={user} budget={budget} />
               </div>
             )}
 
@@ -1448,15 +1448,27 @@ interface ContractorType {
   estimatedCost: string;
   duration: string;
   checkList: string[];
-  platforms: ContractorPlatform[];
+  platforms?: ContractorPlatform[];
+}
+
+interface RecommendedContractor {
+  name: string;
+  specialty: string;
+  budget: string;
+  website: string;
+  whatsapp: string;
+  rating: number;
+  tag: string;
 }
 
 interface ContractorsData {
   types: ContractorType[];
   questionsToAsk: string[];
+  recommended?: RecommendedContractor[];
+  budgetTier?: string;
 }
 
-function ContractorSection({ results, prompt, category, user }: { results: BuiltMeResult | null; prompt: string; category: string | null; user: User | null }) {
+function ContractorSection({ results, prompt, category, user, budget }: { results: BuiltMeResult | null; prompt: string; category: string | null; user: User | null; budget: string | null }) {
   const [contractors, setContractors] = useState<ContractorsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [whatsappSent, setWhatsappSent] = useState<string[]>([]);
@@ -1473,6 +1485,7 @@ function ContractorSection({ results, prompt, category, user }: { results: Built
           designConcept: results?.designConcept?.title || "",
           category: category,
           prompt: prompt,
+          budget: budget,
         }),
       });
       const data = await response.json();
@@ -1483,7 +1496,7 @@ function ContractorSection({ results, prompt, category, user }: { results: Built
     setLoading(false);
   };
 
-  const sendWhatsAppBrief = (contractor: ContractorType) => {
+  const sendWhatsAppBrief = (contractor: Pick<ContractorType, "type" | "relevantScope" | "estimatedCost">) => {
     const brief = `Hi, I found your profile on BuiltMe. I'm looking for a ${contractor.type} contractor in Dubai for my renovation project.
 
 Project: ${results?.designConcept?.title || "Home Renovation"}
@@ -1605,6 +1618,60 @@ Could you please provide a quote? Thank you.`;
               <span style={{ fontSize: 13, color: "#D0C8B8", fontWeight: 300 }}>{q}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Recommended contractors */}
+      {contractors?.recommended && (
+        <div style={{ marginTop: 24 }}>
+          <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
+            RECOMMENDED FOR YOUR BUDGET — {contractors.budgetTier?.toUpperCase()}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {contractors.recommended.map((c, i) => (
+              <div key={i} style={{ background: "#FFF", border: "1px solid #EAE4D9", borderRadius: 4, padding: 20, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 15, fontWeight: 500 }}>{c.name}</span>
+                    <span style={{ background: "#C4A88222", color: "#C4A882", fontSize: 10, padding: "2px 8px", borderRadius: 20, fontFamily: "monospace" }}>{c.tag}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#888", fontWeight: 300, marginBottom: 4 }}>{c.specialty}</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "#C4A882" }}>{"★".repeat(Math.floor(c.rating))}</span>
+                    <span style={{ fontSize: 11, color: "#AAA" }}>{c.rating}</span>
+                    <span style={{ fontSize: 11, color: "#CCC", margin: "0 4px" }}>·</span>
+                    <span style={{ fontSize: 11, color: "#AAA" }}>{c.budget}</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <a
+                    href={c.website}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      padding: "8px 16px", background: "#FFF",
+                      border: "1px solid #EAE4D9", borderRadius: 2,
+                      fontSize: 12, color: "#444", textDecoration: "none",
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}
+                  >
+                    Website →
+                  </a>
+                  <button
+                    onClick={() => sendWhatsAppBrief({ type: c.name, relevantScope: c.specialty, estimatedCost: c.budget })}
+                    style={{
+                      padding: "8px 16px",
+                      background: "#25D36611", border: "1px solid #25D366",
+                      color: "#25D366", borderRadius: 2, cursor: "pointer",
+                      fontSize: 12, fontFamily: "'DM Sans', sans-serif",
+                    }}
+                  >
+                    📱 WhatsApp
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
