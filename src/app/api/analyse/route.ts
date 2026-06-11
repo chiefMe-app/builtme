@@ -27,6 +27,9 @@ function buildPrompt(
   selectedItems: string[],
   selectedMinorItems: string[],
   selectedRooms: string[],
+  locationArea: string,
+  propertyType: string,
+  propertySize: string,
 ) {
   let typeInstruction = "";
   if (userType === "styling") {
@@ -56,8 +59,14 @@ ${typeInstruction}
 
 USER TYPE SPECIFIC INSTRUCTIONS: ${instruction}
 
+PROPERTY LOCATION: ${locationArea}, Dubai
+PROPERTY TYPE: ${propertyType}
+${propertySize ? `APPROXIMATE SIZE: ${propertySize} sqft` : ""}
+
+Generate a project title that includes the property type and area. For example: "Marina Apartment Kitchen Refresh" or "Palm Villa Living Room Transformation"
+
 Return ONLY this JSON, max 3 items per array:
-{"styleProfile":{"dominantStyle":"","colorPalette":[{"name":"","hex":"","usage":""}],"moodKeywords":["","",""],"designDirection":""},"designConcept":{"title":"","description":"","beforeAfterNarrative":""},"scope":{"summary":"","workItems":[{"category":"","items":["",""]}]},"materials":[{"zone":"","item":"","specification":"","supplier":"","supplierArea":"","priceRange":"","quantity":"","totalCost":""}],"furniture":[{"item":"","brand":"","model":"","quantity":1,"priceAED":0,"totalPriceAED":0,"buyLink":"","imageSearchTerm":"","alternative":"","altPriceAED":0}],"costBreakdown":{"materials":0,"furniture":0,"labour":0,"contingency":0,"total":0,"currency":"AED"},"timeline":[{"week":"Week 1","tasks":["",""]}],"supplierMap":[{"name":"","category":"","area":"","website":""}],"nextSteps":["","",""]}`;
+{"styleProfile":{"dominantStyle":"","colorPalette":[{"name":"","hex":"","usage":""}],"moodKeywords":["","",""],"designDirection":""},"designConcept":{"projectTitle":"descriptive title including property type and area e.g. 'JBR Apartment Boho Kitchen'","description":"","beforeAfterNarrative":""},"scope":{"summary":"","workItems":[{"category":"","items":["",""]}]},"materials":[{"zone":"","item":"","specification":"","supplier":"","supplierArea":"","priceRange":"","quantity":"","totalCost":""}],"furniture":[{"item":"","brand":"","model":"","quantity":1,"priceAED":0,"totalPriceAED":0,"buyLink":"","imageSearchTerm":"","alternative":"","altPriceAED":0}],"costBreakdown":{"materials":0,"furniture":0,"labour":0,"contingency":0,"total":0,"currency":"AED"},"timeline":[{"week":"Week 1","tasks":["",""]}],"supplierMap":[{"name":"","category":"","area":"","website":""}],"nextSteps":["","",""]}`;
 }
 
 export async function POST(request: NextRequest) {
@@ -79,6 +88,9 @@ export async function POST(request: NextRequest) {
     const selectedItems = JSON.parse(String(formData.get("selectedItems") ?? "[]")) as string[];
     const selectedMinorItems = JSON.parse(String(formData.get("selectedMinorItems") ?? "[]")) as string[];
     const selectedRooms = JSON.parse(String(formData.get("selectedRooms") ?? "[]")) as string[];
+    const locationArea = String(formData.get("locationArea") ?? "") || "Dubai";
+    const propertyType = String(formData.get("propertyType") ?? "") || "apartment";
+    const propertySize = String(formData.get("propertySize") ?? "");
     const userId = formData.get("userId") ? String(formData.get("userId")) : null;
 
     const floorPlan = formData.get("floorPlan");
@@ -131,7 +143,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    content.push({ type: "text", text: buildPrompt(category, budget, prompt, userType, selectedItems, selectedMinorItems, selectedRooms) });
+    content.push({ type: "text", text: buildPrompt(category, budget, prompt, userType, selectedItems, selectedMinorItems, selectedRooms, locationArea, propertyType, propertySize) });
 
     const client = new Anthropic({ apiKey });
 
@@ -189,7 +201,7 @@ export async function POST(request: NextRequest) {
         budget,
         prompt,
         result,
-        title: (result as { designConcept?: { title?: string } })?.designConcept?.title,
+        title: (result as { designConcept?: { projectTitle?: string } })?.designConcept?.projectTitle,
         renders: [],
         created_at: new Date().toISOString(),
       });

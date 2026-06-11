@@ -31,7 +31,7 @@ interface SpaceAnalysis {
 }
 
 interface DesignConcept {
-  title: string;
+  projectTitle: string;
   description: string;
   beforeAfterNarrative: string;
 }
@@ -112,6 +112,22 @@ const BUDGET_OPTIONS = [
   { id: "30-80", label: "AED 30K–80K", desc: "Room makeover" },
   { id: "80-200", label: "AED 80K–200K", desc: "Full renovation" },
   { id: "200+", label: "AED 200K+", desc: "Premium transformation" },
+];
+
+const DUBAI_AREAS = [
+  "Downtown Dubai", "Dubai Marina", "JBR", "Palm Jumeirah", "JLT",
+  "Business Bay", "DIFC", "Jumeirah", "Mirdif", "Al Barsha",
+  "Dubai Hills", "Arabian Ranches", "The Springs", "JVC", "Al Quoz",
+  "Deira", "Bur Dubai", "Al Nahda", "Silicon Oasis", "Other",
+];
+
+const PROPERTY_TYPES = [
+  { id: "apartment", label: "Apartment", icon: "🏢" },
+  { id: "villa", label: "Villa", icon: "🏡" },
+  { id: "townhouse", label: "Townhouse", icon: "🏘️" },
+  { id: "penthouse", label: "Penthouse", icon: "🌆" },
+  { id: "studio", label: "Studio", icon: "🏠" },
+  { id: "office", label: "Office", icon: "🏬" },
 ];
 
 const STYLE_OPTIONS = [
@@ -252,22 +268,34 @@ const getFurnitureImage = (item: string) => {
 
 const getMaterialImage = (item: string, specification: string) => {
   const term = (item + " " + specification).toLowerCase();
-  if (term.includes("quartz") || term.includes("marble") || term.includes("calacatta"))
+  if (term.includes("calacatta") || term.includes("statuario"))
     return "https://images.unsplash.com/photo-1615873968403-89e068629265?w=80&q=80";
-  if (term.includes("tile") || term.includes("ceramic") || term.includes("porcelain"))
+  if (term.includes("quartz") || term.includes("engineered stone"))
+    return "https://images.unsplash.com/photo-1600607687939-ce8a6d349a58?w=80&q=80";
+  if (term.includes("marble"))
+    return "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=80&q=80";
+  if (term.includes("zellige") || term.includes("terracotta") || term.includes("handmade tile"))
     return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=80&q=80";
-  if (term.includes("wood") || term.includes("oak") || term.includes("timber") || term.includes("shelf"))
-    return "https://images.unsplash.com/photo-1541123437800-1bb1317badc2?w=80&q=80";
-  if (term.includes("vinyl") || term.includes("wrap") || term.includes("laminate"))
-    return "https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=80&q=80";
-  if (term.includes("paint") || term.includes("wall"))
-    return "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=80&q=80";
-  if (term.includes("floor") || term.includes("flooring") || term.includes("parquet"))
-    return "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=80&q=80";
-  if (term.includes("glass") || term.includes("mirror"))
-    return "https://images.unsplash.com/photo-1615873968403-89e068629265?w=80&q=80";
-  if (term.includes("brass") || term.includes("handle") || term.includes("tap") || term.includes("fixture"))
+  if (term.includes("porcelain") || term.includes("ceramic") || term.includes("subway tile"))
     return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=80&q=80";
+  if (term.includes("mosaic"))
+    return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=80&q=80";
+  if (term.includes("vinyl") || term.includes("sticker") || term.includes("peel"))
+    return "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=80&q=80";
+  if (term.includes("oak") || term.includes("walnut") || term.includes("teak"))
+    return "https://images.unsplash.com/photo-1541123437800-1bb1317badc2?w=80&q=80";
+  if (term.includes("wood") || term.includes("timber") || term.includes("mdf"))
+    return "https://images.unsplash.com/photo-1541123437800-1bb1317badc2?w=80&q=80";
+  if (term.includes("brass") || term.includes("gold") || term.includes("handle") || term.includes("tap"))
+    return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=80&q=80";
+  if (term.includes("paint") || term.includes("emulsion"))
+    return "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=80&q=80";
+  if (term.includes("glass") || term.includes("splashback"))
+    return "https://images.unsplash.com/photo-1615873968403-89e068629265?w=80&q=80";
+  if (term.includes("laminate") || term.includes("cabinet"))
+    return "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=80&q=80";
+  if (term.includes("parquet") || term.includes("herringbone") || term.includes("plank"))
+    return "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=80&q=80";
   return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=80&q=80";
 };
 
@@ -287,6 +315,7 @@ export default function BuiltMe() {
   const [stylePreference, setStylePreference] = useState<string | null>(null);
   const [hasDemolition, setHasDemolition] = useState<boolean | null>(null);
   const [hasDrawings, setHasDrawings] = useState<boolean | null>(null);
+  const [location, setLocation] = useState({ area: "", propertyType: "", size: "" });
   const [roomPhotoUrls, setRoomPhotoUrls] = useState<string[]>([]);
   const [agentStep, setAgentStep] = useState(0);
   const [doneSteps, setDoneSteps] = useState<number[]>([]);
@@ -319,6 +348,7 @@ export default function BuiltMe() {
 
   const startNewProject = () => {
     setConfigStep(1);
+    setLocation({ area: "", propertyType: "", size: "" });
     setUserType(null);
     setRoomPhotos([]);
     setSelectedItems([]);
@@ -480,6 +510,9 @@ export default function BuiltMe() {
       formData.append("selectedItems", JSON.stringify(selectedItems));
       formData.append("selectedMinorItems", JSON.stringify(selectedMinorItems));
       formData.append("selectedRooms", JSON.stringify(selectedRooms));
+      formData.append("locationArea", location.area);
+      formData.append("propertyType", location.propertyType);
+      formData.append("propertySize", location.size);
       if (user?.id) formData.append("userId", user.id);
       if (roomPhotos.length > 0) {
         formData.append("floorPlan", roomPhotos[0]);
@@ -510,7 +543,7 @@ export default function BuiltMe() {
           budget: budgetLabel,
           prompt,
           result: parsed,
-          title: parsed?.designConcept?.title,
+          title: parsed?.designConcept?.projectTitle,
           renders: [],
           room_photo_url: roomPhotoUrl,
           created_at: new Date().toISOString(),
@@ -966,7 +999,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
 
           {/* Step indicator */}
           <div style={{ display: "flex", alignItems: "center", marginBottom: 24 }}>
-            {[1, 2, 3].map((s) => (
+            {[1, 2, 3, 4].map((s) => (
               <div key={s} style={{ display: "flex", alignItems: "center" }}>
                 <div
                   style={{
@@ -985,14 +1018,74 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 >
                   {s}
                 </div>
-                {s < 3 && <div style={{ width: 28, height: 1, background: configStep > s ? "#1A1A1A" : "#EAE4D9" }} />}
+                {s < 4 && <div style={{ width: 28, height: 1, background: configStep > s ? "#1A1A1A" : "#EAE4D9" }} />}
               </div>
             ))}
-            <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.2em", marginLeft: 12 }}>STEP {configStep} OF 3</div>
+            <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.2em", marginLeft: 12 }}>STEP {configStep} OF 4</div>
           </div>
 
-          {/* STEP 1: USER TYPE */}
+          {/* STEP 1: LOCATION */}
           {configStep === 1 && (
+            <div>
+              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>NEW PROJECT</div>
+              <h2 className="serif" style={{ fontSize: 36, fontWeight: 400, marginBottom: 28 }}>Where is your <em>property</em>?</h2>
+
+              <div style={{ marginBottom: 32 }}>
+                <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>AREA <span style={{ color: "#C4A882" }}>*</span></div>
+                <select
+                  className="input-field"
+                  value={location.area}
+                  onChange={(e) => setLocation({ ...location, area: e.target.value })}
+                  style={{ cursor: "pointer" }}
+                >
+                  <option value="">Select an area</option>
+                  {DUBAI_AREAS.map((area) => (
+                    <option key={area} value={area}>{area}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ marginBottom: 32 }}>
+                <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>PROPERTY TYPE <span style={{ color: "#C4A882" }}>*</span></div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                  {PROPERTY_TYPES.map((p) => (
+                    <div
+                      key={p.id}
+                      className={`select-card ${location.propertyType === p.id ? "selected" : ""}`}
+                      onClick={() => setLocation({ ...location, propertyType: p.id })}
+                      style={{ textAlign: "center" }}
+                    >
+                      <div style={{ fontSize: 22, marginBottom: 6 }}>{p.icon}</div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{p.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 32 }}>
+                <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>APPROXIMATE SIZE (SQFT) <span style={{ color: "#CCC" }}>(optional)</span></div>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={location.size}
+                  onChange={(e) => setLocation({ ...location, size: e.target.value })}
+                  placeholder="e.g. 1200"
+                />
+              </div>
+
+              <button
+                className="btn-primary"
+                disabled={!location.area || !location.propertyType}
+                onClick={() => setConfigStep(2)}
+                style={{ width: "100%", fontSize: 15, padding: "16px" }}
+              >
+                Continue →
+              </button>
+            </div>
+          )}
+
+          {/* STEP 2: USER TYPE */}
+          {configStep === 2 && (
             <div>
               <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>NEW PROJECT</div>
               <h2 className="serif" style={{ fontSize: 36, fontWeight: 400, marginBottom: 28 }}>What would you like to <em>do</em>?</h2>
@@ -1019,7 +1112,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
               <button
                 className="btn-primary"
                 disabled={!userType}
-                onClick={() => setConfigStep(2)}
+                onClick={() => setConfigStep(3)}
                 style={{ width: "100%", fontSize: 15, padding: "16px" }}
               >
                 Continue →
@@ -1027,8 +1120,8 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
             </div>
           )}
 
-          {/* STEP 2: ROOM PHOTOS */}
-          {configStep === 2 && (
+          {/* STEP 3: ROOM PHOTOS */}
+          {configStep === 3 && (
             <div>
               <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>NEW PROJECT</div>
               <h2 className="serif" style={{ fontSize: 36, fontWeight: 400, marginBottom: 28 }}>Show us your <em>space</em></h2>
@@ -1074,7 +1167,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
               <button
                 className="btn-primary"
                 disabled={roomPhotos.length === 0}
-                onClick={() => setConfigStep(3)}
+                onClick={() => setConfigStep(4)}
                 style={{ width: "100%", fontSize: 15, padding: "16px" }}
               >
                 Continue →
@@ -1082,8 +1175,8 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
             </div>
           )}
 
-          {/* STEP 3: TYPE-SPECIFIC QUESTIONS */}
-          {configStep === 3 && (
+          {/* STEP 4: TYPE-SPECIFIC QUESTIONS */}
+          {configStep === 4 && (
             <div>
               <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>NEW PROJECT</div>
               <h2 className="serif" style={{ fontSize: 36, fontWeight: 400, marginBottom: 28 }}>A few more <em>details</em></h2>
@@ -1369,7 +1462,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
           <div style={{ padding: "20px 32px", borderBottom: "1px solid #EAE4D9", background: "#FFF", position: "sticky", top: 0, zIndex: 100, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
             <div style={{ minWidth: 0, marginRight: 24 }}>
               <div className="mono" style={{ fontSize: 10, color: "#C4A882", marginBottom: 4 }}>YOUR RENOVATION PACKAGE</div>
-              <div className="serif" style={{ fontSize: 20, fontWeight: 400 }}>{results.designConcept?.title || "Your Design Concept"}</div>
+              <div className="serif" style={{ fontSize: 20, fontWeight: 400 }}>{results.designConcept?.projectTitle || "Your Design Concept"}</div>
             </div>
             <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
@@ -1488,29 +1581,60 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 )}
 
                 {/* Scope of work */}
-                {(savedUserType === "minor_reno" || savedUserType === "styling" || savedUserType === "full_reno") && (
-                  <div className="card" style={{ marginTop: 16 }}>
-                    <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
-                      SCOPE OF WORK
+                {(savedUserType === "minor_reno" || savedUserType === "styling" || savedUserType === "full_reno") && results?.scope?.workItems && results.scope.workItems.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{
+                      background: "#1A1A1A",
+                      borderRadius: "4px 4px 0 0",
+                      padding: "16px 24px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}>
+                      <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em" }}>SCOPE OF WORK</div>
+                      <div className="mono" style={{ fontSize: 10, color: "#666" }}>{results.scope.workItems.reduce((acc, cat) => acc + (cat.items?.length || 0), 0)} tasks</div>
                     </div>
-                    <p style={{ fontSize: 13, color: "#888", fontWeight: 300, marginBottom: 16, lineHeight: 1.7 }}>
-                      {results?.scope?.summary}
-                    </p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                      {results?.scope?.workItems?.map((cat, i) => (
-                        <div key={i}>
-                          <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: "#C4A882", letterSpacing: "0.1em", padding: "10px 0 6px", borderTop: i > 0 ? "1px solid #EAE4D9" : "none" }}>
-                            {cat.category?.toUpperCase()}
-                          </div>
-                          {cat.items?.map((item, j) => (
-                            <div key={j} style={{ display: "flex", gap: 10, padding: "6px 0", alignItems: "flex-start" }}>
-                              <span style={{ color: "#C4A882", fontSize: 14, flexShrink: 0, marginTop: 1 }}>✓</span>
-                              <span style={{ fontSize: 13, color: "#555", fontWeight: 300, lineHeight: 1.6 }}>{item}</span>
+                    <div style={{ border: "1px solid #1A1A1A", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
+                      {results.scope.workItems.map((cat, i) => {
+                        const colors = ["#C4A882", "#7EB8C9", "#A9C97E", "#C97E7E", "#9B7EC4"];
+                        const color = colors[i % colors.length];
+                        return (
+                          <div key={i} style={{ borderBottom: i < results.scope!.workItems.length - 1 ? "1px solid #EAE4D9" : "none" }}>
+                            <div style={{
+                              background: color + "18",
+                              borderLeft: `3px solid ${color}`,
+                              padding: "10px 20px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}>
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                              <span className="mono" style={{ fontSize: 11, color: color, letterSpacing: "0.12em", fontWeight: 500 }}>
+                                {cat.category?.toUpperCase()}
+                              </span>
                             </div>
-                          ))}
-                        </div>
-                      ))}
+                            {cat.items?.map((item, j) => (
+                              <div key={j} style={{
+                                display: "flex",
+                                gap: 12,
+                                padding: "10px 20px 10px 32px",
+                                borderBottom: j < cat.items.length - 1 ? "1px solid #F5F2EE" : "none",
+                                alignItems: "flex-start",
+                              }}>
+                                <span style={{ color: color, fontSize: 13, flexShrink: 0, marginTop: 2 }}>✓</span>
+                                <span style={{ fontSize: 13, color: "#444", fontWeight: 300, lineHeight: 1.6 }}>{item}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
+                    {results?.scope?.summary && (
+                      <div style={{ marginTop: 10, padding: "12px 16px", background: "#FAF8F5", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                        <span className="mono" style={{ fontSize: 10, color: "#AAA", marginRight: 8 }}>SUMMARY</span>
+                        <span style={{ fontSize: 12, color: "#888", fontWeight: 300 }}>{results.scope.summary}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1549,7 +1673,15 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                           <td style={{ padding: "12px 16px", fontSize: 12, color: "#666", fontWeight: 300, maxWidth: 180 }}>{m.specification}</td>
                           <td style={{ padding: "12px 16px" }}>
                             <div style={{ fontSize: 13, fontWeight: 500 }}>{m.supplier}</div>
-                            <div style={{ fontSize: 11, color: "#AAA" }}>{m.supplierArea}</div>
+                            <div style={{ fontSize: 11, color: "#AAA", marginBottom: 6 }}>{m.supplierArea}</div>
+                            <a
+                              href={`https://www.google.com/search?q=${encodeURIComponent(m.supplier + ' Dubai ' + m.item)}&tbm=isch`}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ fontSize: 11, color: "#C4A882", textDecoration: "none", display: "block" }}
+                            >
+                              See product photos →
+                            </a>
                           </td>
                           <td style={{ padding: "12px 16px", fontSize: 12, color: "#888", fontFamily: "monospace" }}>{m.priceRange}</td>
                           <td style={{ padding: "12px 16px", fontSize: 14, fontWeight: 600, color: "#C4A882", fontFamily: "monospace" }}>{m.totalCost}</td>
@@ -2104,7 +2236,7 @@ function ContractorSection({ results, prompt, category, user, budget }: { result
         body: JSON.stringify({
           scope: results?.spaceAnalysis || {},
           materials: results?.materials || [],
-          designConcept: results?.designConcept?.title || "",
+          designConcept: results?.designConcept?.projectTitle || "",
           category: category,
           prompt: prompt,
           budget: budget,
@@ -2121,7 +2253,7 @@ function ContractorSection({ results, prompt, category, user, budget }: { result
   const sendWhatsAppBrief = (contractor: Pick<ContractorType, "type" | "relevantScope" | "estimatedCost">) => {
     const brief = `Hi, I found your profile on BuiltMe. I'm looking for a ${contractor.type} contractor in Dubai for my renovation project.
 
-Project: ${results?.designConcept?.title || "Home Renovation"}
+Project: ${results?.designConcept?.projectTitle || "Home Renovation"}
 Scope: ${contractor.relevantScope}
 Budget: ${contractor.estimatedCost}
 Location: Dubai
