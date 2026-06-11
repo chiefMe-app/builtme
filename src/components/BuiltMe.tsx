@@ -572,6 +572,27 @@ export default function BuiltMe() {
     setScreen("results");
   };
 
+  const buildChangeInstruction = () => {
+    if (savedUserType === "minor_reno" && selectedMinorItems.length > 0) {
+      const changeMap: Record<string, string> = {
+        countertop_replace: "countertop", countertop_wrap: "countertop surface",
+        cabinet_repaint: "cabinet color", cabinet_wrap: "cabinet doors",
+        backsplash_tile: "backsplash", backsplash_sticker: "backsplash",
+        floor_real: "floor tiles", floor_sticker: "floor",
+        lighting: "lighting", handles: "handles and taps",
+        wall_tile_replace: "wall tiles", wall_tile_paint: "wall tiles",
+        floor_tile_replace: "floor tiles", vanity: "vanity unit",
+        mirror: "mirror", shower_screen: "shower screen", accessories: "accessories",
+      };
+      const changes = selectedMinorItems.map(id => changeMap[id]).filter(Boolean);
+      return `ONLY change these: ${changes.join(", ")}. Keep everything else EXACTLY the same — same walls, same ceiling, same floor (unless floor is in the change list), same appliances, same layout.`;
+    }
+    if (savedUserType === "styling" && selectedItems.length > 0) {
+      return `ONLY change these items: ${selectedItems.join(", ")}. Keep walls, floor, ceiling, and built-in elements exactly the same.`;
+    }
+    return "";
+  };
+
   const generateRenders = async (updatedResults?: typeof results) => {
     const photoToUse = roomPhoto || roomPhotos[0] || null;
     if (!photoToUse) {
@@ -592,9 +613,12 @@ export default function BuiltMe() {
         ?.map((c: { name: string; hex: string }) => `${c.name} ${c.hex}`)
         .join(", ") || "";
 
+      const changeInstruction = buildChangeInstruction();
+
       const fullPrompt = `${prompt}.
 Use these exact materials: ${materialsSummary}.
 Color palette: ${colorSummary}.
+${changeInstruction}
 ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
 
       formData.append("prompt", fullPrompt);
