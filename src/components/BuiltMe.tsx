@@ -710,6 +710,7 @@ export default function BuiltMe() {
         formData.append("prompt", fullPrompt);
         formData.append("whatToChange", JSON.stringify(whatToChange));
         formData.append("productsPrompt", productsPrompt);
+        formData.append("renderPromptExtra", renderPromptExtra || "");
         formData.append("style", results?.styleProfile?.dominantStyle || "");
         formData.append("room", results?.spaceAnalysis?.roomType || getCategoryLabel() || "living room");
         formData.append("colorPalette", results?.styleProfile?.colorPalette?.map((c: { name: string }) => c.name).join(", ") || "");

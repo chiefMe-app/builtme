@@ -12,8 +12,8 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
-    const prompt = formData.get("prompt") as string;
     const productsPrompt = (formData.get("productsPrompt") as string) || "";
+    const renderPromptExtra = (formData.get("renderPromptExtra") as string) || "";
     const whatToChangeRaw = formData.get("whatToChange") as string | null;
     const whatToChange: string[] = whatToChangeRaw ? JSON.parse(whatToChangeRaw) : [];
     const imageFile = formData.get("image") as File | null;
@@ -44,39 +44,48 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    // Build precise edit prompt for Kontext
-    const itemLabels: Record<string, string> = {
+    // Build explicit keep list from what user did NOT select
+    const allPossibleItems = [
+      "sofa and seating", "dining table and chairs", "lighting fixtures",
+      "wall colour", "rugs", "curtains", "coffee table", "TV unit",
+      "decorative accessories", "kitchen", "kitchen appliances",
+      "doorways and passages", "architectural openings"
+    ];
+
+    const changeLabels: Record<string, string> = {
       sofa: "sofa and seating",
       dining: "dining table and chairs",
       lighting: "lighting fixtures",
-      wall_colour: "wall paint colour",
-      wallpaper: "wallpaper or wall texture",
-      rug: "rug",
-      curtains: "curtains and blinds",
+      wall_colour: "wall colour",
+      rug: "rugs",
+      curtains: "curtains",
       coffee_table: "coffee table",
       tv_unit: "TV unit",
-      decor: "decor and accessories",
-      layout: "furniture layout",
+      decor: "decorative accessories",
     };
 
-    const selectedItems = whatToChange.filter((id) => itemLabels[id]);
-    const changeParts = selectedItems.map((id) => itemLabels[id]);
-    if (productsPrompt) changeParts.push(productsPrompt);
+    const changingItems = (whatToChange || []).map((id: string) => changeLabels[id]).filter(Boolean);
+    const keepingItems = allPossibleItems.filter(item => !changingItems.includes(item));
 
-    const keepItems = Object.keys(itemLabels).filter((id) => !whatToChange.includes(id));
-    const keepList = keepItems.map((id) => itemLabels[id]).join(", ");
+    const editPrompt = `Make MINIMAL edits to this room photo.
 
-    const fullChangeList = whatToChange.includes("existing_only")
-      ? "Rearrange the existing furniture into a better layout. Do not add any new items."
-      : changeParts.length > 0
-        ? `Change: ${changeParts.join(", ")}.`
-        : prompt;
+CHANGE ONLY these specific items: ${changingItems.length > 0 ? changingItems.join(", ") : "furniture style and decor"}.
 
-    const editPrompt = `Edit this room photo.
-${fullChangeList}
-DO NOT move or remove: ${keepList}.
-Keep identical: floor tiles, ceiling, windows, doors, wall positions, AC units, curtain rails.
-Photorealistic result matching the existing room's lighting and perspective.`;
+DO NOT TOUCH OR REMOVE these items - they must remain exactly as they are:
+${keepingItems.join(", ")}.
+
+CRITICAL RULES:
+- Every doorway, passage, and architectural opening must remain OPEN and VISIBLE
+- The kitchen area visible through openings must remain unchanged
+- Dining table and chairs must stay in their exact positions unless "dining table" is in the change list
+- All walls, floor tiles, ceiling, windows stay exactly the same
+- Only replace the specific items listed above, nothing else
+- Same camera angle and perspective
+
+${productsPrompt}
+${renderPromptExtra || ""}
+
+Photorealistic interior photo, same lighting conditions as original.`.trim();
 
     // Configure FAL client
     fal.config({ credentials: process.env.FAL_KEY });
