@@ -27,7 +27,9 @@ export async function segmentObjectAtPoint(params: {
   const result = await fal.subscribe(SEGMENT_MODEL, {
     input: {
       image_url: params.imageUrl,
-      prompts: [{ x: Math.round(params.x), y: Math.round(params.y), label: "1" as const }],
+      // The fal API validates label as a NUMBER (0/1) even though the SDK type
+      // declares it as a string — passing "1" returns 422 Unprocessable Entity
+      prompts: [{ x: Math.round(params.x), y: Math.round(params.y), label: 1 as unknown as "1" }],
       output_format: "png" as const,
     },
   });
