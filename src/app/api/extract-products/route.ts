@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 1500,
+      max_tokens: 4000,
       messages: [{
         role: "user",
         content: [
@@ -83,6 +83,10 @@ URL rules (critical):
         ]
       }]
     });
+
+    if (response.stop_reason === "max_tokens") {
+      throw new Error("Product extraction response was truncated (max_tokens) — JSON would be incomplete");
+    }
 
     const textBlock = response.content.find(
       (block): block is Anthropic.TextBlock => block.type === "text",
