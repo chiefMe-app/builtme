@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData();
     const prompt = formData.get("prompt") as string;
+    const room = formData.get("room") as string | null;
     const imageFile = formData.get("image") as File | null;
 
     if (!imageFile || imageFile.size === 0) {
@@ -68,13 +69,13 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    const renderPrompt = `Modern Boho interior design kitchen renovation.
-    White or cream shaker cabinets, marble or quartz white countertop,
-    neutral backsplash tiles, warm wood accents, rattan pendant light,
-    indoor plants, clean and bright atmosphere.
-    Keep same room layout, same wall positions, same window, same appliances positions.
-    ${prompt}.
-    Photorealistic, high quality, bright natural light, Dubai apartment.`;
+    const roomType = room || "living room";
+
+    const renderPrompt = `${roomType} interior design renovation.
+    IMPORTANT: This is a ${roomType}. Do NOT add kitchen elements, kitchen cabinets, or appliances unless this is a kitchen.
+    Keep exact room structure: walls, windows, doors, ceiling, floor.
+    ONLY change: ${prompt}.
+    Photorealistic, high quality, Dubai apartment interior, natural light.`;
 
     const negativePrompt = `change room structure, move walls, remove windows, remove doors,
     different room layout, different room shape, different floor tiles, changed flooring,
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
           image: imageUrl,
           prompt: renderPrompt,
           negative_prompt: negativePrompt,
-          num_outputs: 1,
+          num_outputs: 2,
           num_inference_steps: 40,
           guidance_scale: 10,
           strength: 0.70,

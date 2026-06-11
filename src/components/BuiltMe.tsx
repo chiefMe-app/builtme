@@ -26,6 +26,7 @@ interface RoomAnalysis {
 
 interface SpaceAnalysis {
   estimatedArea: string;
+  roomType?: string;
   rooms: RoomAnalysis[];
   keyConstraints: string[];
 }
@@ -607,7 +608,8 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
 
       formData.append("prompt", fullPrompt);
       formData.append("style", activeResults?.styleProfile?.dominantStyle || "modern");
-      formData.append("room", getCategoryLabel() || "room");
+      const roomType = activeResults?.spaceAnalysis?.roomType || activeResults?.spaceAnalysis?.rooms?.[0]?.room || getCategoryLabel() || "living room";
+      formData.append("room", roomType);
       formData.append("colorPalette", activeResults?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
 
       const response = await fetch("/api/render", {

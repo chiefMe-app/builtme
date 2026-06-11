@@ -43,7 +43,7 @@ function buildPrompt(
   }
 
   const userTypeInstructions: Record<string, string> = {
-    styling: "Focus ONLY on furniture, lighting, decor and accessories. Do NOT suggest structural changes, tiling, or plumbing. The user wants to restyle without construction.",
+    styling: "This is a STYLING project — NO construction, NO kitchen changes unless the room is a kitchen. Focus ONLY on: furniture replacement, lighting, rugs, curtains, cushions, art, plants, decorative accessories. The room type is determined by the uploaded photos. Do not suggest tile, backsplash, countertop, or any construction work.",
     minor_reno: "Focus on the specific renovation items selected. For each item provide real vs budget-friendly alternative. Include accessories and finishing touches in furniture array.",
     empty_flat: "This is an empty flat that needs full styling. Provide room-by-room furniture recommendations. Populate the spaceAnalysis.rooms array with each room and its furniture needs.",
     full_reno: "This is a full renovation. Include structural scope, MEP considerations, and contractor requirements. Prioritize materials and contractor matching.",
