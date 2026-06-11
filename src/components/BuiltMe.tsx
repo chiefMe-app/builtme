@@ -628,12 +628,13 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
       if (data.error) throw new Error(data.error);
 
       const predictionId = data.predictionId;
+      const provider = data.provider || "replicate";
 
       // Poll for result
       let attempts = 0;
       while (attempts < 60) {
         await new Promise(r => setTimeout(r, 3000));
-        const statusRes = await fetch(`/api/render-status?id=${predictionId}`);
+        const statusRes = await fetch(`/api/render-status?id=${predictionId}&provider=${provider}`);
         const statusData = await statusRes.json();
 
         if (statusData.status === "succeeded") {

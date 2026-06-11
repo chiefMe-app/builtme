@@ -1,55 +1,28 @@
+import { fal } from "@fal-ai/client";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
-import Replicate from "replicate";
 
 export const maxDuration = 300;
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN,
-});
-
-// Retry on transient 429 (rate limit) responses from Replicate
-async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const response = (err as { response?: Response }).response;
-      if (response?.status === 429 && attempt < retries) {
-        let retryAfter = 5;
-        try {
-          const body = await response.clone().json();
-          if (typeof body.retry_after === "number") retryAfter = body.retry_after;
-        } catch {
-          // ignore, use default retryAfter
-        }
-        await new Promise((r) => setTimeout(r, (retryAfter + 1) * 1000));
-        continue;
-      }
-      throw err;
-    }
-  }
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
     const formData = await req.formData();
     const prompt = formData.get("prompt") as string;
-    const room = formData.get("room") as string | null;
-    const style = formData.get("style") as string | null;
-    const colorPalette = formData.get("colorPalette") as string | null;
+    const style = formData.get("style") as string;
+    const room = formData.get("room") as string;
+    const colorPalette = formData.get("colorPalette") as string;
     const imageFile = formData.get("image") as File | null;
 
     if (!imageFile || imageFile.size === 0) {
       return NextResponse.json({ error: "Please upload a photo of your room" }, { status: 400 });
     }
 
-    // Upload to Supabase Storage
+    // Upload image to Supabase Storage first
     const arrayBuffer = await imageFile.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const fileName = `render-input-${Date.now()}.jpg`;
@@ -71,35 +44,31 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    const roomType = room || "living room";
-    const changeList = prompt || "furniture, lighting, decor";
+    // Build precise edit prompt for Kontext
+    const editPrompt = `Interior design edit of this exact room. ${prompt}.
+Style: ${style || "modern contemporary"}.
+Colors: ${colorPalette || "warm neutral tones"}.
+Room type: ${room || "living room"}.
+Keep all walls, windows, doors, floor, ceiling, structural elements exactly the same. Only change the specified furniture and decor items.`;
 
-    const renderPrompt = `Professional interior design visualization. ${roomType} in a Dubai apartment.
-STRICTLY PRESERVE: floor material and pattern, ceiling height and material, all walls, all windows, all doors, room dimensions, fixed appliances positions, structural columns.
-ONLY CHANGE: ${changeList}.
-Style: ${style || "modern"}.
-Colors: ${colorPalette || "neutral warm tones"}.
-Ultra photorealistic, architectural visualization, 8K quality, perfect lighting, no distortion.`;
+    // Configure FAL client
+    fal.config({ credentials: process.env.FAL_KEY });
 
-    const prediction = await withRetry(() =>
-      replicate.predictions.create({
-        model: "black-forest-labs/flux-depth-pro",
-        input: {
-          control_image: imageUrl,
-          prompt: renderPrompt,
-          num_outputs: 2,
-          num_inference_steps: 28,
-          guidance_scale: 15,
-          output_format: "jpg",
-          output_quality: 95,
-          prompt_upsampling: true,
-        },
-      })
-    );
+    // Submit to FAL queue
+    const { request_id } = await fal.queue.submit("fal-ai/flux-kontext-pro", {
+      input: {
+        prompt: editPrompt,
+        image_url: imageUrl,
+        num_images: 2,
+        guidance_scale: 3.5,
+        num_inference_steps: 28,
+        output_format: "jpeg",
+      },
+    });
 
-    return NextResponse.json({ predictionId: prediction.id });
+    return NextResponse.json({ predictionId: request_id, provider: "fal" });
   } catch (err) {
-    console.error(err);
+    console.error("Render error:", err);
     const message = err instanceof Error ? err.message : "Render failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
