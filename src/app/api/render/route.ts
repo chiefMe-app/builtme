@@ -13,9 +13,9 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const prompt = formData.get("prompt") as string;
-    const style = formData.get("style") as string;
-    const room = formData.get("room") as string;
-    const colorPalette = formData.get("colorPalette") as string;
+    const productsPrompt = (formData.get("productsPrompt") as string) || "";
+    const whatToChangeRaw = formData.get("whatToChange") as string | null;
+    const whatToChange: string[] = whatToChangeRaw ? JSON.parse(whatToChangeRaw) : [];
     const imageFile = formData.get("image") as File | null;
 
     if (!imageFile || imageFile.size === 0) {
@@ -45,11 +45,38 @@ export async function POST(req: NextRequest) {
     const imageUrl = urlData.publicUrl;
 
     // Build precise edit prompt for Kontext
-    const editPrompt = `Interior design edit of this exact room. ${prompt}.
-Style: ${style || "modern contemporary"}.
-Colors: ${colorPalette || "warm neutral tones"}.
-Room type: ${room || "living room"}.
-Keep all walls, windows, doors, floor, ceiling, structural elements exactly the same. Only change the specified furniture and decor items.`;
+    const itemLabels: Record<string, string> = {
+      sofa: "sofa and seating",
+      dining: "dining table and chairs",
+      lighting: "lighting fixtures",
+      wall_colour: "wall paint colour",
+      wallpaper: "wallpaper or wall texture",
+      rug: "rug",
+      curtains: "curtains and blinds",
+      coffee_table: "coffee table",
+      tv_unit: "TV unit",
+      decor: "decor and accessories",
+      layout: "furniture layout",
+    };
+
+    const selectedItems = whatToChange.filter((id) => itemLabels[id]);
+    const changeParts = selectedItems.map((id) => itemLabels[id]);
+    if (productsPrompt) changeParts.push(productsPrompt);
+
+    const keepItems = Object.keys(itemLabels).filter((id) => !whatToChange.includes(id));
+    const keepList = keepItems.map((id) => itemLabels[id]).join(", ");
+
+    const fullChangeList = whatToChange.includes("existing_only")
+      ? "Rearrange the existing furniture into a better layout. Do not add any new items."
+      : changeParts.length > 0
+        ? `Change: ${changeParts.join(", ")}.`
+        : prompt;
+
+    const editPrompt = `Edit this room photo.
+${fullChangeList}
+DO NOT move or remove: ${keepList}.
+Keep identical: floor tiles, ceiling, windows, doors, wall positions, AC units, curtain rails.
+Photorealistic result matching the existing room's lighting and perspective.`;
 
     // Configure FAL client
     fal.config({ credentials: process.env.FAL_KEY });
@@ -62,7 +89,7 @@ Keep all walls, windows, doors, floor, ceiling, structural elements exactly the 
           prompt: editPrompt,
           image_url: imageUrl,
           num_images: 2,
-          guidance_scale: 3.5,
+          guidance_scale: 7,
           output_format: "jpeg",
         },
       });

@@ -708,6 +708,8 @@ export default function BuiltMe() {
         const formData = new FormData();
         formData.append("image", photosToRender[i]);
         formData.append("prompt", fullPrompt);
+        formData.append("whatToChange", JSON.stringify(whatToChange));
+        formData.append("productsPrompt", productsPrompt);
         formData.append("style", results?.styleProfile?.dominantStyle || "");
         formData.append("room", results?.spaceAnalysis?.roomType || getCategoryLabel() || "living room");
         formData.append("colorPalette", results?.styleProfile?.colorPalette?.map((c: { name: string }) => c.name).join(", ") || "");
