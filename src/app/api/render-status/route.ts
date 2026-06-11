@@ -1,11 +1,21 @@
 import { fal } from "@fal-ai/client";
+import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getStrictFillResult } from "@/lib/falStrictEdit";
+import { getStrictJob } from "@/lib/strictJobs";
+import { compositeMaskedEdit } from "@/lib/imageComposite";
+import { validateStrictRender } from "@/lib/renderValidation";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 interface FalKontextOutput {
   images?: { url: string }[];
 }
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,6 +25,56 @@ export async function GET(req: NextRequest) {
 
     if (!predictionId) {
       return NextResponse.json({ error: "No prediction ID" }, { status: 400 });
+    }
+
+    // Strict object replacement jobs: composite the generated region back
+    // onto the original photo before returning anything to the frontend
+    if (provider === "fal-fill") {
+      const generatedUrl = await getStrictFillResult(predictionId);
+      if (!generatedUrl) return NextResponse.json({ status: "processing" });
+
+      const meta = getStrictJob(predictionId);
+      if (!meta) {
+        // Metadata lost (e.g. server restart) — return raw output with a warning
+        // rather than failing. TODO: persist job metadata (see strictJobs.ts).
+        console.error("Strict job metadata missing for", predictionId);
+        return NextResponse.json({
+          status: "succeeded",
+          images: [generatedUrl],
+          validation: {
+            passed: false,
+            precisionScore: 0,
+            warnings: ["Job metadata was lost — returning uncomposited output"],
+          },
+        });
+      }
+
+      const compositedBuf = await compositeMaskedEdit({
+        originalImageUrl: meta.originalImageUrl,
+        generatedImageUrl: generatedUrl,
+        maskUrl: meta.maskUrl,
+      });
+
+      const fileName = `strict-render-${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from("builtme-uploads")
+        .upload(fileName, compositedBuf, { contentType: "image/jpeg", upsert: true });
+      if (uploadError) throw new Error(`Composited upload failed: ${uploadError.message}`);
+      const { data: urlData } = supabase.storage.from("builtme-uploads").getPublicUrl(fileName);
+
+      const validation = validateStrictRender({
+        maskUrl: meta.maskUrl,
+        bbox: meta.bbox,
+        finalImageCreated: true,
+      });
+
+      return NextResponse.json({
+        status: "succeeded",
+        images: [urlData.publicUrl],
+        validation,
+        category: meta.category,
+        productName: meta.productName,
+      });
     }
 
     if (provider === "fal") {

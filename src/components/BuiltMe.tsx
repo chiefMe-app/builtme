@@ -99,6 +99,13 @@ interface ExtractedProductOption {
   tier: string;
 }
 
+interface ObjectBbox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface ExtractedProduct {
   category: string;
   itemName: string;
@@ -406,6 +413,17 @@ export default function BuiltMe() {
   const [extractingProducts, setExtractingProducts] = useState(false);
   const [allRenders, setAllRenders] = useState<{ photoIndex: number; url: string }[]>([]);
   const [whatToChange, setWhatToChange] = useState<string[]>([]);
+  // Strict object replacement mode
+  const [renderMode, setRenderMode] = useState<"restyle" | "strict_replace">("restyle");
+  const [selectedObjectMaskUrl, setSelectedObjectMaskUrl] = useState<string | null>(null);
+  const [selectedObjectBbox, setSelectedObjectBbox] = useState<ObjectBbox | null>(null);
+  const [selectedObjectCategory, setSelectedObjectCategory] = useState<string | null>(null);
+  const [isSegmentingObject, setIsSegmentingObject] = useState(false);
+  const [segmentError, setSegmentError] = useState<string | null>(null);
+  const [strictImageUrl, setStrictImageUrl] = useState<string | null>(null);
+  const [strictImageDims, setStrictImageDims] = useState<{ w: number; h: number } | null>(null);
+  const [strictValidationMsg, setStrictValidationMsg] = useState<string | null>(null);
+  const [strictResultInfo, setStrictResultInfo] = useState<{ category: string | null; productName: string | null; brand?: string; price?: string } | null>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -669,6 +687,165 @@ export default function BuiltMe() {
     setExtractingProducts(false);
   };
 
+  const clearObjectSelection = () => {
+    setSelectedObjectMaskUrl(null);
+    setSelectedObjectBbox(null);
+    setSelectedObjectCategory(null);
+    setSegmentError(null);
+    setStrictValidationMsg(null);
+  };
+
+  // Loose category matching between detected object categories ("coffee_table")
+  // and extracted product categories ("coffee table")
+  const categoryMatches = (a?: string | null, b?: string | null) => {
+    const norm = (c?: string | null) => (c || "").toLowerCase().replace(/[_\s]+/g, " ").trim();
+    const x = norm(a);
+    const y = norm(b);
+    if (!x || !y || x === "unknown" || y === "unknown") return false;
+    return x.includes(y.split(" ")[0]) || y.includes(x.split(" ")[0]);
+  };
+
+  const handleImageObjectClick = async (e: React.MouseEvent<HTMLImageElement>) => {
+    if (renderMode !== "strict_replace" || isSegmentingObject) return;
+    const img = e.currentTarget;
+    const rect = img.getBoundingClientRect();
+    const naturalW = img.naturalWidth;
+    const naturalH = img.naturalHeight;
+    if (!naturalW || !naturalH) return;
+
+    // Convert displayed coordinates to original image coordinates
+    const clickX = ((e.clientX - rect.left) / rect.width) * naturalW;
+    const clickY = ((e.clientY - rect.top) / rect.height) * naturalH;
+
+    setIsSegmentingObject(true);
+    setSegmentError(null);
+    setSelectedObjectMaskUrl(null);
+    setSelectedObjectBbox(null);
+    setSelectedObjectCategory(null);
+
+    try {
+      // Upload the photo once so segmentation and rendering share the same URL
+      let imageUrl = strictImageUrl;
+      if (!imageUrl) {
+        const photo = savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0];
+        if (!photo) throw new Error("No room photo");
+        const fd = new FormData();
+        fd.append("image", photo);
+        const upRes = await fetch("/api/upload-photo", { method: "POST", body: fd });
+        const upData = await upRes.json();
+        if (!upData.url) throw new Error(upData.error || "Photo upload failed");
+        imageUrl = upData.url as string;
+        setStrictImageUrl(imageUrl);
+      }
+      setStrictImageDims({ w: naturalW, h: naturalH });
+
+      const res = await fetch("/api/segment-object", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl, clickX, clickY, imageWidth: naturalW, imageHeight: naturalH }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error || !data.maskUrl) {
+        setSegmentError(data.error || "We couldn't detect the object clearly. Please tap the center of the item again.");
+        return;
+      }
+      setSelectedObjectMaskUrl(data.maskUrl);
+      setSelectedObjectBbox(data.bbox);
+      setSelectedObjectCategory(data.category || "unknown");
+    } catch (err) {
+      console.error("Object selection failed:", err);
+      setSegmentError("We couldn't detect the object clearly. Please tap the center of the item again.");
+    } finally {
+      setIsSegmentingObject(false);
+    }
+  };
+
+  // Strict mode: one selected object, one selected product, mask-only inpainting,
+  // final image composited from the original outside the mask (server-side)
+  const generateStrictRender = async () => {
+    // Prefer a selected product whose category matches the detected object
+    const strictKey =
+      selectedProducts.find(key => {
+        const [itemName] = key.split("__");
+        const product = extractedProducts.find(p => p.itemName === itemName);
+        return categoryMatches(product?.category, selectedObjectCategory);
+      }) || selectedProducts[0];
+
+    if (!strictImageUrl || !selectedObjectMaskUrl || !selectedObjectBbox || !strictKey) {
+      setStrictValidationMsg("Please select the object you want to replace and choose one replacement product.");
+      return;
+    }
+    setStrictValidationMsg(null);
+    setRenderLoading(true);
+    setRenders([]);
+    setAllRenders([]);
+    setStrictResultInfo(null);
+
+    const [itemName, optionName] = strictKey.split("__");
+    const product = extractedProducts.find(p => p.itemName === itemName);
+    const option = product?.options?.find(o => o.name === optionName);
+    const replacementRenderDescription = option
+      ? `${option.name}${product?.renderDescription ? ` — ${product.renderDescription}` : ""}`
+      : (product?.renderDescription || optionName || itemName);
+
+    const submitAndPoll = async (): Promise<{ images: string[]; category?: string; productName?: string } | null> => {
+      const res = await fetch("/api/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          strictMode: true,
+          renderMode: "strict_replace",
+          imageUrl: strictImageUrl,
+          selectedObjectMaskUrl,
+          selectedObjectBbox,
+          selectedObjectCategory,
+          replacementRenderDescription,
+          replacementProductName: option?.name || itemName,
+          renderPromptExtra: renderPromptExtra || "",
+        }),
+      });
+      const data = await res.json();
+      if (data.error || !data.predictionId) return null;
+      for (let attempts = 0; attempts < 60; attempts++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const sRes = await fetch(`/api/render-status?id=${data.predictionId}&provider=fal-fill`);
+        const sData = await sRes.json();
+        if (sData.status === "succeeded" && sData.images?.length > 0) return sData;
+        if (sData.status === "failed") return null;
+      }
+      return null;
+    };
+
+    try {
+      let result = await submitAndPoll();
+      if (!result) result = await submitAndPoll(); // retry once on failure
+
+      if (result) {
+        const url = result.images[0];
+        setAllRenders([{ photoIndex: selectedRenderPhoto, url }]);
+        setRenders([url]);
+        setStrictResultInfo({
+          category: result.category || selectedObjectCategory,
+          productName: result.productName || option?.name || itemName,
+          brand: option?.brand,
+          price: option?.price,
+        });
+        localStorage.setItem("builtme_renders", JSON.stringify([url]));
+        if (savedProjectId) {
+          try {
+            await supabase.from("builtme_projects").update({ renders: [url] }).eq("id", savedProjectId);
+          } catch (dbErr) {
+            console.error("Failed to update project renders:", dbErr);
+          }
+        }
+      } else {
+        setStrictValidationMsg("The render failed. Please try again — or reselect the object and try once more.");
+      }
+    } finally {
+      setRenderLoading(false);
+    }
+  };
+
   // Submit one surgical Kontext edit and poll until it finishes. Returns the result image URL.
   const runEditStep = async (stepPrompt: string, photo: File | null, inputUrl: string | null): Promise<string | null> => {
     const formData = new FormData();
@@ -694,6 +871,10 @@ export default function BuiltMe() {
   const generateRenders = async () => {
     if (savedRoomPhotos.length === 0) {
       alert("No room photos found.");
+      return;
+    }
+    if (renderMode === "strict_replace") {
+      await generateStrictRender();
       return;
     }
     setRenderLoading(true);
@@ -2441,7 +2622,38 @@ export default function BuiltMe() {
                 {/* Step 3: Render */}
                 {renderStep === "render" && (
                   <div>
-                    {/* What to change */}
+                    {/* Render mode toggle */}
+                    <div style={{ marginBottom: 20 }}>
+                      <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                        RENDER MODE
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {([
+                          { id: "restyle" as const, label: "🎨 Restyle Room", hint: "Creative full-room restyle" },
+                          { id: "strict_replace" as const, label: "🎯 Replace Item Precisely", hint: "Only the selected object changes" },
+                        ]).map(mode => (
+                          <button
+                            key={mode.id}
+                            onClick={() => { setRenderMode(mode.id); setStrictValidationMsg(null); }}
+                            style={{
+                              flex: 1, padding: "12px 14px", textAlign: "left",
+                              background: renderMode === mode.id ? "#1A1A1A" : "#FFF",
+                              color: renderMode === mode.id ? "#F7F4EF" : "#666",
+                              border: `1px solid ${renderMode === mode.id ? "#1A1A1A" : "#EAE4D9"}`,
+                              borderRadius: 4, cursor: "pointer",
+                              fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                              transition: "all 0.2s",
+                            }}
+                          >
+                            <div style={{ fontWeight: 500 }}>{mode.label}</div>
+                            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>{mode.hint}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* What to change (restyle mode only) */}
+                    {renderMode === "restyle" && (
                     <div style={{ marginBottom: 20 }}>
                       <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
                         WHAT DO YOU WANT TO CHANGE?
@@ -2473,6 +2685,7 @@ export default function BuiltMe() {
                         </div>
                       )}
                     </div>
+                    )}
 
                     {/* Room photos strip */}
                     {savedRoomPhotos.length > 0 ? (
@@ -2482,7 +2695,7 @@ export default function BuiltMe() {
                         </div>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           {savedRoomPhotos.map((photo, i) => (
-                            <div key={i} style={{ position: "relative", cursor: "pointer" }} onClick={() => setSelectedRenderPhoto(i)}>
+                            <div key={i} style={{ position: "relative", cursor: "pointer" }} onClick={() => { setSelectedRenderPhoto(i); setStrictImageUrl(null); clearObjectSelection(); }}>
                               <img
                                 src={URL.createObjectURL(photo)}
                                 alt={`Room ${i + 1}`}
@@ -2519,12 +2732,130 @@ export default function BuiltMe() {
                               if (file) {
                                 setSavedRoomPhotos([file]);
                                 setSelectedRenderPhoto(0);
+                                setStrictImageUrl(null);
+                                clearObjectSelection();
                               }
                             }}
                             style={{ display: "none" }}
                           />
                           <div style={{ fontSize: 13, color: "#AAA" }}>Upload a room photo to generate render</div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Strict mode: click-to-select object */}
+                    {renderMode === "strict_replace" && savedRoomPhotos.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                          TAP THE ITEM YOU WANT TO REPLACE
+                        </div>
+                        <div style={{ position: "relative", borderRadius: 4, overflow: "hidden", border: "1px solid #EAE4D9" }}>
+                          <img
+                            src={URL.createObjectURL(savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0])}
+                            alt="Tap an object to select it"
+                            onClick={handleImageObjectClick}
+                            style={{ width: "100%", display: "block", cursor: isSegmentingObject ? "wait" : "crosshair" }}
+                          />
+                          {/* Selected object bbox overlay */}
+                          {selectedObjectBbox && strictImageDims && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                left: `${(selectedObjectBbox.x / strictImageDims.w) * 100}%`,
+                                top: `${(selectedObjectBbox.y / strictImageDims.h) * 100}%`,
+                                width: `${(selectedObjectBbox.width / strictImageDims.w) * 100}%`,
+                                height: `${(selectedObjectBbox.height / strictImageDims.h) * 100}%`,
+                                border: "2px solid #C4A882",
+                                background: "rgba(196, 168, 130, 0.18)",
+                                borderRadius: 2,
+                                pointerEvents: "none",
+                              }}
+                            />
+                          )}
+                          {isSegmentingObject && (
+                            <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#555" }}>
+                              Detecting object...
+                            </div>
+                          )}
+                        </div>
+
+                        {segmentError && (
+                          <div style={{ marginTop: 8, fontSize: 12, color: "#B0533C" }}>{segmentError}</div>
+                        )}
+
+                        {selectedObjectMaskUrl && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 12, color: "#7A6A55", background: "#F0EBE2", padding: "4px 10px", borderRadius: 20 }}>
+                              ✓ Object selected{selectedObjectCategory && selectedObjectCategory !== "unknown" ? ` — ${selectedObjectCategory.replace(/_/g, " ")}` : ""}
+                            </span>
+                            <button
+                              onClick={clearObjectSelection}
+                              style={{ fontSize: 12, color: "#888", background: "none", border: "1px solid #EAE4D9", borderRadius: 20, padding: "4px 12px", cursor: "pointer" }}
+                            >
+                              Clear selection
+                            </button>
+                            {/* TODO: manual brush/refine mask mode for imperfect selections */}
+                          </div>
+                        )}
+
+                        {/* Unknown category — let the user pick manually */}
+                        {selectedObjectMaskUrl && selectedObjectCategory === "unknown" && (
+                          <div style={{ marginTop: 12 }}>
+                            <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>What is this item?</div>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {["sofa", "coffee_table", "rug", "lighting", "chair", "dining_table", "decor"].map(cat => (
+                                <button
+                                  key={cat}
+                                  onClick={() => setSelectedObjectCategory(cat)}
+                                  style={{
+                                    padding: "6px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer",
+                                    background: "#FFF", color: "#666", border: "1px solid #EAE4D9",
+                                  }}
+                                >
+                                  {cat.replace(/_/g, " ")}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Replacement options for the detected category */}
+                        {selectedObjectMaskUrl && extractedProducts.length > 0 && (
+                          <div style={{ marginTop: 14 }}>
+                            <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 8 }}>
+                              CHOOSE THE REPLACEMENT
+                            </div>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {(() => {
+                                const matching = extractedProducts.filter(p => categoryMatches(p.category, selectedObjectCategory));
+                                const pool = matching.length > 0 ? matching : extractedProducts;
+                                return pool.flatMap(product =>
+                                  (product.options || []).map(opt => {
+                                    const optionKey = `${product.itemName}__${opt.name}`;
+                                    const isSelected = selectedProducts[0] === optionKey && selectedProducts.length === 1;
+                                    return (
+                                      <button
+                                        key={optionKey}
+                                        onClick={() => setSelectedProducts([optionKey])}
+                                        style={{
+                                          padding: "6px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer",
+                                          background: isSelected ? "#1A1A1A" : "#FFF",
+                                          color: isSelected ? "#F7F4EF" : "#666",
+                                          border: `1px solid ${isSelected ? "#1A1A1A" : "#EAE4D9"}`,
+                                        }}
+                                      >
+                                        {opt.name} — AED {opt.price}
+                                      </button>
+                                    );
+                                  })
+                                );
+                              })()}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#AAA", marginTop: 6 }}>
+                              Precision mode replaces one object with one product at a time.
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2549,6 +2880,12 @@ export default function BuiltMe() {
                         placeholder="Any specific instructions? e.g. keep walls the same colour, lighter sofa..."
                       />
                     </div>
+
+                    {strictValidationMsg && (
+                      <div style={{ marginBottom: 12, padding: "10px 14px", background: "#FBF3F0", border: "1px solid #E8CFC5", borderRadius: 4, fontSize: 12, color: "#B0533C" }}>
+                        {strictValidationMsg}
+                      </div>
+                    )}
 
                     <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
                       <button
@@ -2581,6 +2918,24 @@ export default function BuiltMe() {
                     {renderLoading && allRenders.length > 0 && (
                       <div style={{ padding: "12px 16px", background: "#FAF8F5", borderRadius: 4, marginBottom: 16, fontSize: 13, color: "#888" }}>
                         ✓ {allRenders.length} render{allRenders.length > 1 ? "s" : ""} done — generating more...
+                      </div>
+                    )}
+
+                    {/* Strict replacement result info */}
+                    {renderMode === "strict_replace" && strictResultInfo && allRenders.length > 0 && (
+                      <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
+                        <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 6 }}>
+                          STRICT REPLACEMENT: ONLY SELECTED OBJECT EDITED
+                        </div>
+                        <div style={{ fontSize: 12, color: "#7A6A55" }}>
+                          {strictResultInfo.category && strictResultInfo.category !== "unknown" ? `${strictResultInfo.category.replace(/_/g, " ")} → ` : ""}
+                          {strictResultInfo.productName}
+                          {strictResultInfo.brand ? ` · ${strictResultInfo.brand}` : ""}
+                          {strictResultInfo.price ? ` · AED ${strictResultInfo.price}` : ""}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#AAA", marginTop: 4 }}>
+                          Precision mode preserves the original room outside the selected object.
+                        </div>
                       </div>
                     )}
 
