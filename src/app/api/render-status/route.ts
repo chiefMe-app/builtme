@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       const generatedUrl = await getStrictFillResult(predictionId);
       if (!generatedUrl) return NextResponse.json({ status: "processing" });
 
-      const meta = getStrictJob(predictionId);
+      const meta = await getStrictJob(predictionId);
       if (!meta) {
         // Metadata lost (e.g. server restart) — return raw output with a warning
         // rather than failing. TODO: persist job metadata (see strictJobs.ts).

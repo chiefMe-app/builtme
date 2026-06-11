@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
           maskUrl: body.selectedObjectMaskUrl,
           prompt: strictPrompt,
         });
-        setStrictJob(request_id, {
+        await setStrictJob(request_id, {
           originalImageUrl: body.imageUrl,
           maskUrl: body.selectedObjectMaskUrl,
           bbox: body.selectedObjectBbox,
