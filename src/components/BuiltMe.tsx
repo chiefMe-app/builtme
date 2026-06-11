@@ -341,6 +341,29 @@ const getMaterialImage = (item: string, specification: string) => {
   return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=80&q=80";
 };
 
+// Shows a real product photo found via image search, falling back to a stock image
+function ProductImage({ query, fallback, alt, style }: { query: string; fallback: string; alt: string; style: React.CSSProperties }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/product-image?q=${encodeURIComponent(query)}`)
+      .then(r => r.json())
+      .then(d => { if (alive && d.images?.[0]) setSrc(d.images[0]); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [query]);
+
+  return (
+    <img
+      src={src || fallback}
+      alt={alt}
+      style={style}
+      onError={() => { if (src) setSrc(fallback); }}
+    />
+  );
+}
+
 export default function BuiltMe() {
   const router = useRouter();
   const [screen, setScreen] = useState<Screen>("landing");
@@ -685,9 +708,14 @@ export default function BuiltMe() {
     const editSteps: string[] = [];
     const productCategories: string[] = [];
     selectedProducts.forEach(key => {
-      const [itemName] = key.split("__");
+      const [itemName, optName] = key.split("__");
       const product = extractedProducts.find(p => p.itemName === itemName);
-      const desc = product?.renderDescription || itemName;
+      const option = product?.options?.find(o => o.name === optName);
+      // Describe the SPECIFIC chosen option, not the generic category description —
+      // Kontext needs a visually distinct target to make a visible change
+      const desc = option
+        ? `a ${option.name}${product?.renderDescription ? ` (${product.renderDescription})` : ""} — a clearly different, brand-new piece`
+        : (product?.renderDescription || itemName);
       const category = product?.category || itemName;
       productCategories.push(category.toLowerCase());
       editSteps.push(`Replace the existing ${category} with ${desc}, ${KEEP_SAME}`);
@@ -732,9 +760,18 @@ export default function BuiltMe() {
       try {
         let currentUrl: string | null = null;
         for (const step of editSteps) {
-          const resultUrl = await runEditStep(step, currentUrl ? null : photosToRender[i], currentUrl);
-          if (resultUrl) currentUrl = resultUrl;
-          // If a step fails, keep the last successful intermediate result
+          // A failed step keeps the last successful intermediate result and
+          // must never abort the whole photo, so catch per step and retry once
+          try {
+            let resultUrl = await runEditStep(step, currentUrl ? null : photosToRender[i], currentUrl);
+            if (!resultUrl) {
+              resultUrl = await runEditStep(step, currentUrl ? null : photosToRender[i], currentUrl);
+            }
+            if (resultUrl) currentUrl = resultUrl;
+            else console.error(`Edit step failed for photo ${i}:`, step);
+          } catch (stepErr) {
+            console.error(`Edit step error for photo ${i}:`, stepErr);
+          }
         }
         if (!currentUrl) continue;
 
@@ -2366,7 +2403,7 @@ export default function BuiltMe() {
                                         transition: "all 0.2s",
                                       }}
                                     >
-                                      <img src={getFurnitureImage(product.itemName)} alt={opt.name} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, marginBottom: 8 }} />
+                                      <ProductImage query={`${opt.name} ${opt.brand} furniture`} fallback={getFurnitureImage(product.itemName)} alt={opt.name} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, marginBottom: 8 }} />
                                       <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 2 }}>{opt.name}</div>
                                       <div style={{ fontSize: 11, color: "#888" }}>{opt.brand}</div>
                                       <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>AED {opt.price}</div>
