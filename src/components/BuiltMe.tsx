@@ -225,9 +225,15 @@ const AGENT_STEPS = [
 
 const getFurnitureImage = (item: string) => {
   const term = item.toLowerCase();
-  if (term.includes("pendant") || term.includes("chandelier"))
+  if (term.includes("handle") || term.includes("knob") || term.includes("pull"))
+    return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=120&q=80";
+  if (term.includes("led") || term.includes("strip light") || term.includes("under-cabinet"))
+    return "https://images.unsplash.com/photo-1565814636199-ae8133055c1c?w=120&q=80";
+  if (term.includes("organiser") || term.includes("organizer") || term.includes("spice rack"))
+    return "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=120&q=80";
+  if (term.includes("pendant") || term.includes("chandelier") || term.includes("ceiling light"))
     return "https://images.unsplash.com/photo-1524484485831-a92ffc0de03f?w=120&q=80";
-  if (term.includes("floor lamp") || term.includes("table lamp") || term.includes("lamp"))
+  if (term.includes("floor lamp") || term.includes("table lamp"))
     return "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=120&q=80";
   if (term.includes("bar stool") || term.includes("counter stool"))
     return "https://images.unsplash.com/photo-1503602642458-232111445657?w=120&q=80";
@@ -235,11 +241,11 @@ const getFurnitureImage = (item: string) => {
     return "https://images.unsplash.com/photo-1592078615290-033ee584e267?w=120&q=80";
   if (term.includes("sofa") || term.includes("couch") || term.includes("sectional"))
     return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
-  if (term.includes("coffee table") || term.includes("side table") || term.includes("end table"))
-    return "https://images.unsplash.com/photo-1592078615290-033ee584e267?w=120&q=80";
+  if (term.includes("coffee table"))
+    return "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?w=120&q=80";
   if (term.includes("dining table"))
     return "https://images.unsplash.com/photo-1615876234886-fd9a39fda97f?w=120&q=80";
-  if (term.includes("shelf") || term.includes("bookcase") || term.includes("shelving"))
+  if (term.includes("shelf") || term.includes("bookcase") || term.includes("floating shelf"))
     return "https://images.unsplash.com/photo-1594654281943-e1fbf41d1f65?w=120&q=80";
   if (term.includes("rug") || term.includes("carpet"))
     return "https://images.unsplash.com/photo-1600166898405-da9535204843?w=120&q=80";
@@ -248,20 +254,26 @@ const getFurnitureImage = (item: string) => {
   if (term.includes("plant") || term.includes("pot") || term.includes("planter"))
     return "https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=120&q=80";
   if (term.includes("mirror"))
-    return "https://images.unsplash.com/photo-1618219908412-a29a1bb7b86e?w=120&q=80";
+    return "https://images.unsplash.com/photo-1618219740975-d40978bb7378?w=120&q=80";
   if (term.includes("tv unit") || term.includes("media") || term.includes("console"))
     return "https://images.unsplash.com/photo-1593085512500-5d55148d6f0d?w=120&q=80";
   if (term.includes("bed") || term.includes("headboard"))
-    return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
+    return "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=120&q=80";
   if (term.includes("wardrobe") || term.includes("closet"))
     return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=120&q=80";
-  if (term.includes("canister") || term.includes("jar") || term.includes("organiser") || term.includes("storage"))
+  if (term.includes("towel") || term.includes("rail") || term.includes("hook"))
+    return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=120&q=80";
+  if (term.includes("canister") || term.includes("jar") || term.includes("storage box"))
     return "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=120&q=80";
   if (term.includes("art") || term.includes("print") || term.includes("frame") || term.includes("poster"))
     return "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=120&q=80";
   if (term.includes("cushion") || term.includes("pillow") || term.includes("throw"))
-    return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
-  if (term.includes("handle") || term.includes("tap") || term.includes("faucet") || term.includes("hardware"))
+    return "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=120&q=80";
+  if (term.includes("shower") || term.includes("screen") || term.includes("partition"))
+    return "https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=120&q=80";
+  if (term.includes("vanity") || term.includes("basin") || term.includes("sink"))
+    return "https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=120&q=80";
+  if (term.includes("tap") || term.includes("faucet"))
     return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=120&q=80";
   return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
 };
@@ -1583,56 +1595,88 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 {/* Scope of work */}
                 {(savedUserType === "minor_reno" || savedUserType === "styling" || savedUserType === "full_reno") && results?.scope?.workItems && results.scope.workItems.length > 0 && (
                   <div style={{ marginTop: 16 }}>
-                    <div style={{
-                      background: "#1A1A1A",
-                      borderRadius: "4px 4px 0 0",
-                      padding: "16px 24px",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}>
+                    {/* Header */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                       <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em" }}>SCOPE OF WORK</div>
-                      <div className="mono" style={{ fontSize: 10, color: "#666" }}>{results.scope.workItems.reduce((acc, cat) => acc + (cat.items?.length || 0), 0)} tasks</div>
+                      <div className="mono" style={{ fontSize: 10, color: "#AAA" }}>
+                        {results.scope.workItems.reduce((acc, cat) => acc + (cat.items?.length || 0), 0)} tasks
+                      </div>
                     </div>
-                    <div style={{ border: "1px solid #1A1A1A", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
+
+                    {/* Work items — timeline style */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                       {results.scope.workItems.map((cat, i) => {
                         const colors = ["#C4A882", "#7EB8C9", "#A9C97E", "#C97E7E", "#9B7EC4"];
                         const color = colors[i % colors.length];
                         return (
-                          <div key={i} style={{ borderBottom: i < results.scope!.workItems.length - 1 ? "1px solid #EAE4D9" : "none" }}>
+                          <div key={i} style={{
+                            background: "#FFF",
+                            border: "1px solid #EAE4D9",
+                            borderRadius: 4,
+                            overflow: "hidden"
+                          }}>
+                            {/* Category header */}
                             <div style={{
-                              background: color + "18",
-                              borderLeft: `3px solid ${color}`,
-                              padding: "10px 20px",
                               display: "flex",
                               alignItems: "center",
-                              gap: 8,
+                              gap: 12,
+                              padding: "12px 20px",
+                              borderBottom: "1px solid #EAE4D9",
+                              background: "#FAF8F5"
                             }}>
-                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                              <span className="mono" style={{ fontSize: 11, color: color, letterSpacing: "0.12em", fontWeight: 500 }}>
-                                {cat.category?.toUpperCase()}
-                              </span>
-                            </div>
-                            {cat.items?.map((item, j) => (
-                              <div key={j} style={{
-                                display: "flex",
-                                gap: 12,
-                                padding: "10px 20px 10px 32px",
-                                borderBottom: j < cat.items.length - 1 ? "1px solid #F5F2EE" : "none",
-                                alignItems: "flex-start",
+                              <div style={{
+                                width: 32, height: 32,
+                                borderRadius: "50%",
+                                background: color + "22",
+                                border: `1.5px solid ${color}`,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                flexShrink: 0
                               }}>
-                                <span style={{ color: color, fontSize: 13, flexShrink: 0, marginTop: 2 }}>✓</span>
-                                <span style={{ fontSize: 13, color: "#444", fontWeight: 300, lineHeight: 1.6 }}>{item}</span>
+                                <span className="mono" style={{ fontSize: 11, color: color, fontWeight: 500 }}>{i + 1}</span>
                               </div>
-                            ))}
+                              <span className="serif" style={{ fontSize: 16, fontWeight: 400, color: "#1A1A1A" }}>{cat.category}</span>
+                            </div>
+                            {/* Tasks */}
+                            <div style={{ padding: "8px 0" }}>
+                              {cat.items?.map((item, j) => (
+                                <div key={j} style={{
+                                  display: "flex",
+                                  gap: 14,
+                                  padding: "10px 20px",
+                                  borderBottom: j < cat.items.length - 1 ? "1px solid #F5F2EE" : "none",
+                                  alignItems: "flex-start"
+                                }}>
+                                  <div style={{
+                                    width: 20, height: 20,
+                                    borderRadius: "50%",
+                                    background: color + "18",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    flexShrink: 0, marginTop: 1
+                                  }}>
+                                    <span style={{ color: color, fontSize: 11 }}>✓</span>
+                                  </div>
+                                  <span style={{ fontSize: 13, color: "#444", fontWeight: 300, lineHeight: 1.7 }}>{item}</span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         );
                       })}
                     </div>
+
+                    {/* Summary */}
                     {results?.scope?.summary && (
-                      <div style={{ marginTop: 10, padding: "12px 16px", background: "#FAF8F5", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                        <span className="mono" style={{ fontSize: 10, color: "#AAA", marginRight: 8 }}>SUMMARY</span>
-                        <span style={{ fontSize: 12, color: "#888", fontWeight: 300 }}>{results.scope.summary}</span>
+                      <div style={{
+                        marginTop: 12,
+                        background: "#1A1A1A",
+                        borderRadius: 4,
+                        padding: "14px 20px",
+                        display: "flex",
+                        gap: 12,
+                        alignItems: "flex-start"
+                      }}>
+                        <span className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", flexShrink: 0, marginTop: 2 }}>SUMMARY</span>
+                        <span style={{ fontSize: 13, color: "#D0C8B8", fontWeight: 300, lineHeight: 1.7 }}>{results.scope.summary}</span>
                       </div>
                     )}
                   </div>
