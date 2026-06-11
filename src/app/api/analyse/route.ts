@@ -19,11 +19,31 @@ const SUPPORTED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
-function buildPrompt(category: string, budget: string, prompt: string) {
+function buildPrompt(
+  category: string,
+  budget: string,
+  prompt: string,
+  userType: string,
+  selectedItems: string[],
+  selectedMinorItems: string[],
+  selectedRooms: string[],
+) {
+  let typeInstruction = "";
+  if (userType === "styling") {
+    typeInstruction = `User wants to change these specific items: ${selectedItems.join(", ")}. Only recommend changes for these items. Do not suggest structural changes.`;
+  } else if (userType === "minor_reno") {
+    typeInstruction = `User selected these specific renovation options: ${selectedMinorItems.join(", ")}. Provide real vs budget alternatives for each selected item.`;
+  } else if (userType === "empty_flat") {
+    typeInstruction = `Empty flat styling for rooms: ${selectedRooms.join(", ")}. Provide full furniture and styling recommendations for each room.`;
+  } else if (userType === "full_reno") {
+    typeInstruction = `Full renovation project. Include contractor matching as priority output.`;
+  }
+
   return `You are BuiltMe AI. Generate a Dubai home renovation package as valid JSON ONLY. No markdown, no backticks, no explanation. Start with { and end with }.
 
 PROJECT: ${category}, ${budget}, Dubai UAE
 VISION: "${prompt || "Modern, clean and functional space"}"
+${typeInstruction}
 
 Return ONLY this JSON, max 3 items per array:
 {"styleProfile":{"dominantStyle":"","colorPalette":[{"name":"","hex":"","usage":""}],"moodKeywords":["","",""],"designDirection":""},"designConcept":{"title":"","description":"","beforeAfterNarrative":""},"materials":[{"zone":"","item":"","specification":"","supplier":"","supplierArea":"","priceRange":"","quantity":"","totalCost":""}],"furniture":[{"item":"","brand":"","model":"","quantity":1,"priceAED":0,"totalPriceAED":0,"buyLink":"","imageSearchTerm":"","alternative":"","altPriceAED":0}],"costBreakdown":{"materials":0,"furniture":0,"labour":0,"contingency":0,"total":0,"currency":"AED"},"timeline":[{"week":"Week 1","tasks":["",""]}],"supplierMap":[{"name":"","category":"","area":"","website":""}],"nextSteps":["","",""]}`;
@@ -44,6 +64,10 @@ export async function POST(request: NextRequest) {
     const category = String(formData.get("category") ?? "");
     const budget = String(formData.get("budget") ?? "");
     const prompt = String(formData.get("prompt") ?? "");
+    const userType = String(formData.get("userType") ?? "");
+    const selectedItems = JSON.parse(String(formData.get("selectedItems") ?? "[]")) as string[];
+    const selectedMinorItems = JSON.parse(String(formData.get("selectedMinorItems") ?? "[]")) as string[];
+    const selectedRooms = JSON.parse(String(formData.get("selectedRooms") ?? "[]")) as string[];
     const userId = formData.get("userId") ? String(formData.get("userId")) : null;
 
     const floorPlan = formData.get("floorPlan");
@@ -96,7 +120,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    content.push({ type: "text", text: buildPrompt(category, budget, prompt) });
+    content.push({ type: "text", text: buildPrompt(category, budget, prompt, userType, selectedItems, selectedMinorItems, selectedRooms) });
 
     const client = new Anthropic({ apiKey });
 

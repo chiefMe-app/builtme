@@ -96,21 +96,96 @@ interface BuiltMeResult {
 
 type Screen = "landing" | "configure" | "processing" | "results";
 
-const RENOVATION_CATEGORIES = [
-  { id: "full", label: "Full Apartment", icon: "🏠", desc: "All rooms" },
-  { id: "kitchen", label: "Kitchen", icon: "🍳", desc: "Kitchen refresh" },
-  { id: "bathroom", label: "Bathroom", icon: "🚿", desc: "Bathroom update" },
-  { id: "living", label: "Living Room", icon: "🛋️", desc: "Living & dining" },
-  { id: "bedroom", label: "Bedroom", icon: "🛏️", desc: "Master or guest" },
-  { id: "painting", label: "Painting", icon: "🎨", desc: "Walls & ceilings" },
-];
-
 const BUDGET_OPTIONS = [
   { id: "10-30", label: "AED 10K–30K", desc: "Cosmetic refresh" },
   { id: "30-80", label: "AED 30K–80K", desc: "Room makeover" },
   { id: "80-200", label: "AED 80K–200K", desc: "Full renovation" },
   { id: "200+", label: "AED 200K+", desc: "Premium transformation" },
 ];
+
+const STYLE_OPTIONS = [
+  { id: "modern", label: "Modern", icon: "◻️" },
+  { id: "minimalist", label: "Minimalist", icon: "⬜" },
+  { id: "scandinavian", label: "Scandinavian", icon: "🌿" },
+  { id: "boho", label: "Modern Boho", icon: "🪴" },
+  { id: "luxury", label: "Luxury / Glam", icon: "✨" },
+  { id: "industrial", label: "Industrial", icon: "🏭" },
+];
+
+const USER_TYPES = [
+  {
+    id: "styling",
+    title: "I want to restyle my room",
+    subtitle: "Change furniture, lighting, decor — no construction",
+    icon: "🛋️",
+    example: "My living room feels dated. I want a fresh look without breaking walls.",
+    color: "#C4A882",
+  },
+  {
+    id: "minor_reno",
+    title: "Minor renovation",
+    subtitle: "Kitchen or bathroom refresh — no demolition",
+    icon: "🔧",
+    example: "Change countertops, tiles, cabinet wrap, flooring.",
+    color: "#7EB8C9",
+  },
+  {
+    id: "empty_flat",
+    title: "Empty flat — full styling",
+    subtitle: "Newly moved in, need furniture and styling from scratch",
+    icon: "🏠",
+    example: "Just got keys. Need to furnish and style the whole apartment.",
+    color: "#A9C97E",
+  },
+  {
+    id: "full_reno",
+    title: "Full renovation",
+    subtitle: "Demolition and rebuild — need a contractor",
+    icon: "🏗️",
+    example: "I want to knock down walls, redo plumbing, full fit-out.",
+    color: "#C97E7E",
+  },
+];
+
+const STYLING_ITEMS = [
+  "Sofa / seating",
+  "Coffee table",
+  "Lighting / pendants",
+  "Curtains / blinds",
+  "Rugs",
+  "Wall decor / art",
+  "Shelving / storage",
+  "Plants / accessories",
+  "TV unit / media console",
+  "Dining table & chairs",
+];
+
+const KITCHEN_OPTIONS = [
+  { id: "countertop_replace", label: "Replace countertop", sub: "New quartz or marble slab" },
+  { id: "countertop_wrap", label: "Wrap countertop", sub: "Vinyl wrap — budget-friendly" },
+  { id: "cabinet_repaint", label: "Repaint cabinets", sub: "New colour, same structure" },
+  { id: "cabinet_wrap", label: "Wrap cabinet doors", sub: "Vinyl wrap — quick refresh" },
+  { id: "backsplash_tile", label: "New backsplash tiles", sub: "Real ceramic or porcelain" },
+  { id: "backsplash_sticker", label: "Tile sticker", sub: "Peel & stick — removable" },
+  { id: "floor_real", label: "New floor tiles", sub: "Permanent ceramic/vinyl" },
+  { id: "floor_sticker", label: "Floor sticker tile", sub: "Peel & stick — renter-friendly" },
+  { id: "lighting", label: "New lighting", sub: "Under-cabinet or overhead" },
+  { id: "handles", label: "New handles & taps", sub: "Quick hardware upgrade" },
+];
+
+const BATHROOM_OPTIONS = [
+  { id: "wall_tile_replace", label: "Replace wall tiles", sub: "New ceramic or porcelain" },
+  { id: "wall_tile_paint", label: "Tile paint", sub: "Paint over existing tiles" },
+  { id: "floor_tile_replace", label: "Replace floor tiles", sub: "New tiles" },
+  { id: "floor_sticker", label: "Floor sticker", sub: "Peel & stick" },
+  { id: "vanity", label: "New vanity unit", sub: "Sink + cabinet" },
+  { id: "mirror", label: "New mirror", sub: "Framed or backlit" },
+  { id: "shower_screen", label: "Shower screen", sub: "Glass partition" },
+  { id: "lighting", label: "New lighting", sub: "LED or backlit mirror" },
+  { id: "accessories", label: "New accessories", sub: "Towel rail, hooks, shelves" },
+];
+
+const ROOMS_LIST = ["Living room", "Master bedroom", "Guest bedroom", "Kitchen", "Dining area", "Home office", "Bathrooms"];
 
 const AGENT_STEPS = [
   { id: "upload", label: "Processing uploads", icon: "📁" },
@@ -146,11 +221,19 @@ const getFurnitureImage = (item: string) => {
 export default function BuiltMe() {
   const router = useRouter();
   const [screen, setScreen] = useState<Screen>("landing");
-  const [category, setCategory] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [references, setReferences] = useState<File[]>([]);
   const [roomPhotos, setRoomPhotos] = useState<File[]>([]);
+  const [userType, setUserType] = useState<string | null>(null);
+  const [configStep, setConfigStep] = useState(1);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  const [selectedMinorItems, setSelectedMinorItems] = useState<string[]>([]);
+  const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
+  const [stylePreference, setStylePreference] = useState<string | null>(null);
+  const [hasDemolition, setHasDemolition] = useState<boolean | null>(null);
+  const [hasDrawings, setHasDrawings] = useState<boolean | null>(null);
   const [roomPhotoUrls, setRoomPhotoUrls] = useState<string[]>([]);
   const [agentStep, setAgentStep] = useState(0);
   const [doneSteps, setDoneSteps] = useState<number[]>([]);
@@ -180,12 +263,29 @@ export default function BuiltMe() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const startNewProject = () => {
+    setConfigStep(1);
+    setUserType(null);
+    setRoomPhotos([]);
+    setSelectedItems([]);
+    setSelectedRoom(null);
+    setSelectedMinorItems([]);
+    setSelectedRooms([]);
+    setStylePreference(null);
+    setHasDemolition(null);
+    setHasDrawings(null);
+    setBudget(null);
+    setPrompt("");
+    setReferences([]);
+    setScreen("configure");
+  };
+
   const handleStart = () => {
     if (!user) {
       router.push("/auth");
       return;
     }
-    setScreen("configure");
+    startNewProject();
   };
 
   // If a project was opened from "My Projects", load it straight into the results screen
@@ -229,6 +329,31 @@ export default function BuiltMe() {
     }
   };
 
+  const getCategoryLabel = () => {
+    if (userType === "styling") return "Room Restyling";
+    if (userType === "minor_reno") {
+      if (selectedRoom === "both") return "Kitchen & Bathroom";
+      if (selectedRoom === "bathroom") return "Bathroom";
+      return "Kitchen";
+    }
+    if (userType === "empty_flat") return "Full Apartment (Empty)";
+    if (userType === "full_reno") return "Full Renovation";
+    return "";
+  };
+
+  const toggleInArray = (arr: string[], val: string, setter: (v: string[]) => void) => {
+    setter(arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val]);
+  };
+
+  const canAnalyse = () => {
+    if (roomPhotos.length === 0 || !budget) return false;
+    if (userType === "styling") return selectedItems.length > 0;
+    if (userType === "minor_reno") return selectedMinorItems.length > 0;
+    if (userType === "empty_flat") return selectedRooms.length > 0;
+    if (userType === "full_reno") return prompt.trim().length > 0;
+    return false;
+  };
+
   const runAgents = async () => {
     setScreen("processing");
     setDoneSteps([]);
@@ -242,13 +367,17 @@ export default function BuiltMe() {
 
     setIsLoading(true);
     try {
-      const categoryLabel = RENOVATION_CATEGORIES.find((c) => c.id === category)?.label ?? category ?? "";
+      const categoryLabel = getCategoryLabel();
       const budgetLabel = BUDGET_OPTIONS.find((b) => b.id === budget)?.label ?? budget ?? "";
 
       const formData = new FormData();
       formData.append("category", categoryLabel);
       formData.append("budget", budgetLabel);
       formData.append("prompt", prompt);
+      formData.append("userType", userType || "");
+      formData.append("selectedItems", JSON.stringify(selectedItems));
+      formData.append("selectedMinorItems", JSON.stringify(selectedMinorItems));
+      formData.append("selectedRooms", JSON.stringify(selectedRooms));
       if (user?.id) formData.append("userId", user.id);
       if (roomPhotos.length > 0) {
         formData.append("floorPlan", roomPhotos[0]);
@@ -322,7 +451,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
 
       formData.append("prompt", fullPrompt);
       formData.append("style", activeResults?.styleProfile?.dominantStyle || "modern");
-      formData.append("room", RENOVATION_CATEGORIES.find(c => c.id === category)?.label || "room");
+      formData.append("room", getCategoryLabel() || "room");
       formData.append("colorPalette", activeResults?.styleProfile?.colorPalette?.map((c: {name: string}) => c.name).join(", ") || "");
 
       const response = await fetch("/api/render", {
@@ -408,9 +537,13 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
     setIsLoading(true);
     try {
       const formData = new FormData();
-      formData.append("category", category || "");
+      formData.append("category", getCategoryLabel());
       formData.append("budget", budget || "");
       formData.append("prompt", prompt + ". IMPORTANT UPDATES: " + renderPromptExtra);
+      formData.append("userType", userType || "");
+      formData.append("selectedItems", JSON.stringify(selectedItems));
+      formData.append("selectedMinorItems", JSON.stringify(selectedMinorItems));
+      formData.append("selectedRooms", JSON.stringify(selectedRooms));
       if (roomPhotos.length > 0) formData.append("floorPlan", roomPhotos[0]);
 
       const response = await fetch("/api/analyse", {
@@ -717,136 +850,381 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
       {/* CONFIGURE */}
       {screen === "configure" && (
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "40px 24px" }} className="fade-in">
-          <button className="btn-ghost" onClick={() => setScreen("landing")} style={{ marginBottom: 28 }}>← Back</button>
-          <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>NEW PROJECT</div>
-          <h2 className="serif" style={{ fontSize: 36, fontWeight: 400, marginBottom: 36 }}>Tell us about your <em>space</em></h2>
-
-          {/* Category */}
-          <div style={{ marginBottom: 32 }}>
-            <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>WHAT ARE YOU RENOVATING?</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-              {RENOVATION_CATEGORIES.map(c => (
-                <div key={c.id} className={`select-card ${category === c.id ? "selected" : ""}`} onClick={() => setCategory(c.id)}>
-                  <div style={{ fontSize: 24, marginBottom: 6 }}>{c.icon}</div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{c.label}</div>
-                  <div style={{ fontSize: 11, color: "#AAA", marginTop: 2 }}>{c.desc}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Budget */}
-          <div style={{ marginBottom: 32 }}>
-            <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>BUDGET RANGE</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-              {BUDGET_OPTIONS.map(b => (
-                <div key={b.id} className={`select-card ${budget === b.id ? "selected" : ""}`} onClick={() => setBudget(b.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 500 }}>{b.label}</div>
-                    <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{b.desc}</div>
-                  </div>
-                  {budget === b.id && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1A1A1A" }} />}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Vision prompt */}
-          <div style={{ marginBottom: 32 }}>
-            <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>DESCRIBE YOUR VISION</div>
-            <textarea
-              className="input-field"
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              placeholder="e.g. I want a warm, minimal kitchen with white cabinets and wood accents. Natural light is important. I like Japanese and Scandinavian style. Currently it feels dark and dated."
-              style={{ minHeight: 100, resize: "vertical", lineHeight: 1.7 }}
-            />
-            <div style={{ fontSize: 11, color: "#BBB", marginTop: 6 }}>Be specific — the more detail, the better your package.</div>
-          </div>
-
-          {/* Room photos upload */}
-          <div style={{ marginBottom: 32 }}>
-            <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 6 }}>CURRENT ROOM PHOTOS <span style={{ color: "#C4A882" }}>*</span></div>
-            <div style={{ fontSize: 12, color: "#AAA", marginBottom: 12 }}>Upload 3-5 photos of your current space from different angles. The AI will preserve your exact room structure.</div>
-            <div
-              className={`upload-zone ${roomPhotos.length > 0 ? "has-file" : ""}`}
-              onClick={() => roomPhotosRef.current?.click()}
-            >
-              <input
-                ref={roomPhotosRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => {
-                  const files = Array.from(e.target.files || []).slice(0, 5);
-                  setRoomPhotos(files);
-                }}
-                style={{ display: "none" }}
-              />
-              {roomPhotos.length > 0 ? (
-                <div>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 8 }}>
-                    {roomPhotos.map((f, i) => (
-                      <img key={i} src={URL.createObjectURL(f)} alt="" style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 4 }} />
-                    ))}
-                  </div>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{roomPhotos.length} photo{roomPhotos.length > 1 ? "s" : ""} selected</div>
-                  <div style={{ fontSize: 12, color: "#AAA", marginTop: 4 }}>Click to change</div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: 32, marginBottom: 10 }}>📷</div>
-                  <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload 3-5 room photos</div>
-                  <div style={{ fontSize: 12, color: "#AAA" }}>Different angles: entrance view, corners, windows</div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Reference images */}
-          <div style={{ marginBottom: 40 }}>
-            <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>STYLE REFERENCES <span style={{ color: "#CCC" }}>(Pinterest, photos — up to 5)</span></div>
-            <div className={`upload-zone ${references.length > 0 ? "has-file" : ""}`} onClick={() => refImagesRef.current?.click()}>
-              <input ref={refImagesRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple onChange={handleReferences} style={{ display: "none" }} />
-              {references.length > 0 ? (
-                <div>
-                  <div style={{ fontSize: 24, marginBottom: 8 }}>🖼️</div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{references.length} image{references.length > 1 ? "s" : ""} selected</div>
-                  <div style={{ fontSize: 12, color: "#AAA", marginTop: 4 }}>Click to change</div>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
-                    {references.map((f, i) => (
-                      <div key={i} style={{ width: 48, height: 48, background: "#EAE4D9", borderRadius: 4, overflow: "hidden" }}>
-                        <img src={URL.createObjectURL(f)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: 32, marginBottom: 10 }}>🖼️</div>
-                  <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload style references</div>
-                  <div style={{ fontSize: 12, color: "#AAA" }}>Screenshots from Pinterest, Instagram, or anywhere you love</div>
-                </div>
-              )}
-            </div>
-          </div>
-
           <button
-            className="btn-primary"
-            disabled={!category || !budget || !prompt.trim() || roomPhotos.length === 0}
-            onClick={runAgents}
-            style={{ width: "100%", fontSize: 15, padding: "16px" }}
+            className="btn-ghost"
+            onClick={() => {
+              if (configStep > 1) setConfigStep(configStep - 1);
+              else setScreen("landing");
+            }}
+            style={{ marginBottom: 28 }}
           >
-            Analyse my space →
+            ← Back
           </button>
-          {roomPhotos.length === 0 && category && budget && prompt.trim() && (
-            <div style={{ textAlign: "center", marginTop: 8, fontSize: 12, color: "#B45757" }}>
-              Please upload at least 1 room photo to continue
+
+          {/* Step indicator */}
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 24 }}>
+            {[1, 2, 3].map((s) => (
+              <div key={s} style={{ display: "flex", alignItems: "center" }}>
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: configStep >= s ? "#1A1A1A" : "#FFF",
+                    color: configStep >= s ? "#F7F4EF" : "#AAA",
+                    border: `1.5px solid ${configStep >= s ? "#1A1A1A" : "#EAE4D9"}`,
+                    fontSize: 12,
+                    fontFamily: "'DM Mono', monospace",
+                  }}
+                >
+                  {s}
+                </div>
+                {s < 3 && <div style={{ width: 28, height: 1, background: configStep > s ? "#1A1A1A" : "#EAE4D9" }} />}
+              </div>
+            ))}
+            <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.2em", marginLeft: 12 }}>STEP {configStep} OF 3</div>
+          </div>
+
+          {/* STEP 1: USER TYPE */}
+          {configStep === 1 && (
+            <div>
+              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>NEW PROJECT</div>
+              <h2 className="serif" style={{ fontSize: 36, fontWeight: 400, marginBottom: 28 }}>What would you like to <em>do</em>?</h2>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14, marginBottom: 32 }}>
+                {USER_TYPES.map((t) => (
+                  <div
+                    key={t.id}
+                    className="select-card"
+                    onClick={() => setUserType(t.id)}
+                    style={{
+                      padding: 22,
+                      borderColor: userType === t.id ? "#C4A882" : undefined,
+                      borderWidth: userType === t.id ? 2 : undefined,
+                      background: userType === t.id ? "#FAF8F5" : undefined,
+                    }}
+                  >
+                    <div style={{ fontSize: 30, marginBottom: 10 }}>{t.icon}</div>
+                    <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 6 }}>{t.title}</div>
+                    <div style={{ fontSize: 12, color: "#999", marginBottom: 10, lineHeight: 1.6 }}>{t.subtitle}</div>
+                    <div style={{ fontSize: 11, color: "#BBB", fontStyle: "italic", lineHeight: 1.6 }}>&ldquo;{t.example}&rdquo;</div>
+                  </div>
+                ))}
+              </div>
+              <button
+                className="btn-primary"
+                disabled={!userType}
+                onClick={() => setConfigStep(2)}
+                style={{ width: "100%", fontSize: 15, padding: "16px" }}
+              >
+                Continue →
+              </button>
             </div>
           )}
-          <div style={{ textAlign: "center", marginTop: 12, fontSize: 12, color: "#BBB" }}>
-            Style references are optional — AI works from your photos and description
-          </div>
+
+          {/* STEP 2: ROOM PHOTOS */}
+          {configStep === 2 && (
+            <div>
+              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>NEW PROJECT</div>
+              <h2 className="serif" style={{ fontSize: 36, fontWeight: 400, marginBottom: 28 }}>Show us your <em>space</em></h2>
+
+              <div style={{ marginBottom: 32 }}>
+                <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 6 }}>UPLOAD PHOTOS OF YOUR CURRENT SPACE <span style={{ color: "#C4A882" }}>*</span></div>
+                <div style={{ fontSize: 12, color: "#AAA", marginBottom: 12 }}>Different angles help the AI understand your room better.</div>
+                <div
+                  className={`upload-zone ${roomPhotos.length > 0 ? "has-file" : ""}`}
+                  onClick={() => roomPhotosRef.current?.click()}
+                >
+                  <input
+                    ref={roomPhotosRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []).slice(0, 5);
+                      setRoomPhotos(files);
+                    }}
+                    style={{ display: "none" }}
+                  />
+                  {roomPhotos.length > 0 ? (
+                    <div>
+                      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                        {roomPhotos.map((f, i) => (
+                          <img key={i} src={URL.createObjectURL(f)} alt="" style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 4 }} />
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{roomPhotos.length} photo{roomPhotos.length > 1 ? "s" : ""} selected</div>
+                      <div style={{ fontSize: 12, color: "#AAA", marginTop: 4 }}>Click to change</div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 32, marginBottom: 10 }}>📷</div>
+                      <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload 1-5 room photos</div>
+                      <div style={{ fontSize: 12, color: "#AAA" }}>Different angles: entrance view, corners, windows</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button
+                className="btn-primary"
+                disabled={roomPhotos.length === 0}
+                onClick={() => setConfigStep(3)}
+                style={{ width: "100%", fontSize: 15, padding: "16px" }}
+              >
+                Continue →
+              </button>
+            </div>
+          )}
+
+          {/* STEP 3: TYPE-SPECIFIC QUESTIONS */}
+          {configStep === 3 && (
+            <div>
+              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>NEW PROJECT</div>
+              <h2 className="serif" style={{ fontSize: 36, fontWeight: 400, marginBottom: 28 }}>A few more <em>details</em></h2>
+
+              {/* STYLING */}
+              {userType === "styling" && (
+                <>
+                  <div style={{ marginBottom: 32 }}>
+                    <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>WHAT DO YOU WANT TO CHANGE?</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                      {STYLING_ITEMS.map((item) => (
+                        <div
+                          key={item}
+                          className={`select-card ${selectedItems.includes(item) ? "selected" : ""}`}
+                          onClick={() => toggleInArray(selectedItems, item, setSelectedItems)}
+                          style={{ display: "flex", alignItems: "center", gap: 10 }}
+                        >
+                          <input type="checkbox" readOnly checked={selectedItems.includes(item)} style={{ accentColor: "#C4A882", width: 14, height: 14 }} />
+                          <span style={{ fontSize: 13 }}>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 32 }}>
+                    <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>STYLE PREFERENCE</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                      {STYLE_OPTIONS.map((s) => (
+                        <div
+                          key={s.id}
+                          className={`select-card ${stylePreference === s.id ? "selected" : ""}`}
+                          onClick={() => setStylePreference(s.id)}
+                          style={{ textAlign: "center" }}
+                        >
+                          <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{s.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* MINOR RENO */}
+              {userType === "minor_reno" && (
+                <>
+                  <div style={{ marginBottom: 32 }}>
+                    <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>WHICH ROOM?</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                      {[
+                        { id: "kitchen", label: "Kitchen", icon: "🍳" },
+                        { id: "bathroom", label: "Bathroom", icon: "🚿" },
+                        { id: "both", label: "Both", icon: "🏠" },
+                      ].map((r) => (
+                        <div
+                          key={r.id}
+                          className={`select-card ${selectedRoom === r.id ? "selected" : ""}`}
+                          onClick={() => {
+                            setSelectedRoom(r.id);
+                            setSelectedMinorItems([]);
+                          }}
+                          style={{ textAlign: "center" }}
+                        >
+                          <div style={{ fontSize: 22, marginBottom: 6 }}>{r.icon}</div>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{r.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedRoom && (
+                    <div style={{ marginBottom: 32 }}>
+                      <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>WHAT DO YOU WANT TO CHANGE?</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                        {(selectedRoom === "kitchen" ? KITCHEN_OPTIONS : selectedRoom === "bathroom" ? BATHROOM_OPTIONS : [...KITCHEN_OPTIONS, ...BATHROOM_OPTIONS]).map((opt) => (
+                          <div
+                            key={opt.id}
+                            className={`select-card ${selectedMinorItems.includes(opt.id) ? "selected" : ""}`}
+                            onClick={() => toggleInArray(selectedMinorItems, opt.id, setSelectedMinorItems)}
+                          >
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{opt.label}</div>
+                            <div style={{ fontSize: 11, color: "#AAA" }}>{opt.sub}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* EMPTY FLAT */}
+              {userType === "empty_flat" && (
+                <>
+                  <div style={{ marginBottom: 32 }}>
+                    <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>WHICH ROOMS NEED STYLING?</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                      {ROOMS_LIST.map((room) => (
+                        <div
+                          key={room}
+                          className={`select-card ${selectedRooms.includes(room) ? "selected" : ""}`}
+                          onClick={() => toggleInArray(selectedRooms, room, setSelectedRooms)}
+                          style={{ display: "flex", alignItems: "center", gap: 10 }}
+                        >
+                          <input type="checkbox" readOnly checked={selectedRooms.includes(room)} style={{ accentColor: "#C4A882", width: 14, height: 14 }} />
+                          <span style={{ fontSize: 13 }}>{room}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 32 }}>
+                    <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>STYLE PREFERENCE</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                      {STYLE_OPTIONS.map((s) => (
+                        <div
+                          key={s.id}
+                          className={`select-card ${stylePreference === s.id ? "selected" : ""}`}
+                          onClick={() => setStylePreference(s.id)}
+                          style={{ textAlign: "center" }}
+                        >
+                          <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{s.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* FULL RENO */}
+              {userType === "full_reno" && (
+                <>
+                  <div style={{ marginBottom: 32 }}>
+                    <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>DESCRIBE WHAT YOU WANT TO CHANGE</div>
+                    <textarea
+                      className="input-field"
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="e.g. Knock down the wall between kitchen and living room, redo all plumbing and electrical, full new layout."
+                      style={{ minHeight: 100, resize: "vertical", lineHeight: 1.7 }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: 32 }}>
+                    <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>DOES THIS INVOLVE DEMOLITION?</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                      {[{ label: "Yes", val: true }, { label: "No", val: false }].map((opt) => (
+                        <div
+                          key={opt.label}
+                          className={`select-card ${hasDemolition === opt.val ? "selected" : ""}`}
+                          onClick={() => setHasDemolition(opt.val)}
+                          style={{ textAlign: "center" }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{opt.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 32 }}>
+                    <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>DO YOU HAVE EXISTING DRAWINGS?</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                      {[{ label: "Yes", val: true }, { label: "No", val: false }].map((opt) => (
+                        <div
+                          key={opt.label}
+                          className={`select-card ${hasDrawings === opt.val ? "selected" : ""}`}
+                          onClick={() => setHasDrawings(opt.val)}
+                          style={{ textAlign: "center" }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{opt.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {hasDrawings && (
+                    <div style={{ marginBottom: 32 }}>
+                      <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>UPLOAD FLOOR PLANS / DRAWINGS</div>
+                      <div className={`upload-zone ${references.length > 0 ? "has-file" : ""}`} onClick={() => refImagesRef.current?.click()}>
+                        <input ref={refImagesRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple onChange={handleReferences} style={{ display: "none" }} />
+                        {references.length > 0 ? (
+                          <div>
+                            <div style={{ fontSize: 24, marginBottom: 8 }}>📐</div>
+                            <div style={{ fontSize: 14, fontWeight: 500 }}>{references.length} file{references.length > 1 ? "s" : ""} selected</div>
+                            <div style={{ fontSize: 12, color: "#AAA", marginTop: 4 }}>Click to change</div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div style={{ fontSize: 32, marginBottom: 10 }}>📐</div>
+                            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload your drawings</div>
+                            <div style={{ fontSize: 12, color: "#AAA" }}>Floor plans, sketches, or PDFs</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 12, color: "#AAA", marginBottom: 32, lineHeight: 1.7 }}>
+                    Our AI will match you with licensed Dubai contractors based on your scope.
+                  </div>
+                </>
+              )}
+
+              {/* BUDGET (all types) */}
+              <div style={{ marginBottom: 32 }}>
+                <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>BUDGET RANGE</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                  {BUDGET_OPTIONS.map((b) => (
+                    <div key={b.id} className={`select-card ${budget === b.id ? "selected" : ""}`} onClick={() => setBudget(b.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 500 }}>{b.label}</div>
+                        <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{b.desc}</div>
+                      </div>
+                      {budget === b.id && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1A1A1A" }} />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* VISION PROMPT (not for full_reno, which has its own scope textarea above) */}
+              {userType !== "full_reno" && (
+                <div style={{ marginBottom: 40 }}>
+                  <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 14 }}>DESCRIBE YOUR VISION</div>
+                  <textarea
+                    className="input-field"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="e.g. I want a warm, minimal look with white tones and wood accents. Natural light is important. I like Japanese and Scandinavian style."
+                    style={{ minHeight: 100, resize: "vertical", lineHeight: 1.7 }}
+                  />
+                  <div style={{ fontSize: 11, color: "#BBB", marginTop: 6 }}>Be specific — the more detail, the better your package.</div>
+                </div>
+              )}
+
+              <button
+                className="btn-primary"
+                disabled={!canAnalyse()}
+                onClick={runAgents}
+                style={{ width: "100%", fontSize: 15, padding: "16px" }}
+              >
+                Analyse my space →
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -899,7 +1277,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 AED {(results.costBreakdown?.total || 0).toLocaleString()}
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <button className="btn-ghost" onClick={() => setScreen("configure")}>New project</button>
+                <button className="btn-ghost" onClick={startNewProject}>New project</button>
                 <button className="btn-primary" onClick={() => window.open("/pdf", "_blank")} style={{ padding: "10px 20px", fontSize: 13 }}>Download PDF</button>
               </div>
             </div>
@@ -1258,7 +1636,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 </div>
 
                 {/* Contractor types needed */}
-                <ContractorSection results={results} prompt={prompt} category={category} user={user} budget={budget} />
+                <ContractorSection results={results} prompt={prompt} category={getCategoryLabel()} user={user} budget={budget} />
               </div>
             )}
 
