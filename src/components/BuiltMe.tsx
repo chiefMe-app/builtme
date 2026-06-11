@@ -81,10 +81,21 @@ interface Supplier {
   website: string;
 }
 
+interface ScopeWorkCategory {
+  category: string;
+  items: string[];
+}
+
+interface ScopeOfWork {
+  summary: string;
+  workItems: ScopeWorkCategory[];
+}
+
 interface BuiltMeResult {
   styleProfile?: StyleProfile;
   spaceAnalysis?: SpaceAnalysis;
   designConcept?: DesignConcept;
+  scope?: ScopeOfWork;
   materials?: MaterialItem[];
   furniture?: FurnitureItem[];
   costBreakdown?: CostBreakdown;
@@ -198,24 +209,66 @@ const AGENT_STEPS = [
 
 const getFurnitureImage = (item: string) => {
   const term = item.toLowerCase();
-  if (term.includes("pendant") || term.includes("light") || term.includes("lamp"))
+  if (term.includes("pendant") || term.includes("chandelier"))
     return "https://images.unsplash.com/photo-1524484485831-a92ffc0de03f?w=120&q=80";
-  if (term.includes("stool") || term.includes("chair"))
+  if (term.includes("floor lamp") || term.includes("table lamp") || term.includes("lamp"))
+    return "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=120&q=80";
+  if (term.includes("bar stool") || term.includes("counter stool"))
+    return "https://images.unsplash.com/photo-1503602642458-232111445657?w=120&q=80";
+  if (term.includes("dining chair") || term.includes("chair"))
     return "https://images.unsplash.com/photo-1592078615290-033ee584e267?w=120&q=80";
-  if (term.includes("shelf") || term.includes("shelv"))
+  if (term.includes("sofa") || term.includes("couch") || term.includes("sectional"))
     return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
+  if (term.includes("coffee table") || term.includes("side table") || term.includes("end table"))
+    return "https://images.unsplash.com/photo-1592078615290-033ee584e267?w=120&q=80";
+  if (term.includes("dining table"))
+    return "https://images.unsplash.com/photo-1615876234886-fd9a39fda97f?w=120&q=80";
+  if (term.includes("shelf") || term.includes("bookcase") || term.includes("shelving"))
+    return "https://images.unsplash.com/photo-1594654281943-e1fbf41d1f65?w=120&q=80";
   if (term.includes("rug") || term.includes("carpet"))
     return "https://images.unsplash.com/photo-1600166898405-da9535204843?w=120&q=80";
-  if (term.includes("plant") || term.includes("pot"))
+  if (term.includes("curtain") || term.includes("blind") || term.includes("drape"))
+    return "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=120&q=80";
+  if (term.includes("plant") || term.includes("pot") || term.includes("planter"))
     return "https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=120&q=80";
-  if (term.includes("canister") || term.includes("jar") || term.includes("storage"))
-    return "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=120&q=80";
   if (term.includes("mirror"))
     return "https://images.unsplash.com/photo-1618219908412-a29a1bb7b86e?w=120&q=80";
-  if (term.includes("curtain") || term.includes("blind"))
-    return "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=120&q=80";
-  // default interior
+  if (term.includes("tv unit") || term.includes("media") || term.includes("console"))
+    return "https://images.unsplash.com/photo-1593085512500-5d55148d6f0d?w=120&q=80";
+  if (term.includes("bed") || term.includes("headboard"))
+    return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
+  if (term.includes("wardrobe") || term.includes("closet"))
+    return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=120&q=80";
+  if (term.includes("canister") || term.includes("jar") || term.includes("organiser") || term.includes("storage"))
+    return "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=120&q=80";
+  if (term.includes("art") || term.includes("print") || term.includes("frame") || term.includes("poster"))
+    return "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=120&q=80";
+  if (term.includes("cushion") || term.includes("pillow") || term.includes("throw"))
+    return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
+  if (term.includes("handle") || term.includes("tap") || term.includes("faucet") || term.includes("hardware"))
+    return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=120&q=80";
   return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
+};
+
+const getMaterialImage = (item: string, specification: string) => {
+  const term = (item + " " + specification).toLowerCase();
+  if (term.includes("quartz") || term.includes("marble") || term.includes("calacatta"))
+    return "https://images.unsplash.com/photo-1615873968403-89e068629265?w=80&q=80";
+  if (term.includes("tile") || term.includes("ceramic") || term.includes("porcelain"))
+    return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=80&q=80";
+  if (term.includes("wood") || term.includes("oak") || term.includes("timber") || term.includes("shelf"))
+    return "https://images.unsplash.com/photo-1541123437800-1bb1317badc2?w=80&q=80";
+  if (term.includes("vinyl") || term.includes("wrap") || term.includes("laminate"))
+    return "https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=80&q=80";
+  if (term.includes("paint") || term.includes("wall"))
+    return "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=80&q=80";
+  if (term.includes("floor") || term.includes("flooring") || term.includes("parquet"))
+    return "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=80&q=80";
+  if (term.includes("glass") || term.includes("mirror"))
+    return "https://images.unsplash.com/photo-1615873968403-89e068629265?w=80&q=80";
+  if (term.includes("brass") || term.includes("handle") || term.includes("tap") || term.includes("fixture"))
+    return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=80&q=80";
+  return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=80&q=80";
 };
 
 export default function BuiltMe() {
@@ -1433,6 +1486,33 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                     </div>
                   </div>
                 )}
+
+                {/* Scope of work */}
+                {(savedUserType === "minor_reno" || savedUserType === "styling" || savedUserType === "full_reno") && (
+                  <div className="card" style={{ marginTop: 16 }}>
+                    <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
+                      SCOPE OF WORK
+                    </div>
+                    <p style={{ fontSize: 13, color: "#888", fontWeight: 300, marginBottom: 16, lineHeight: 1.7 }}>
+                      {results?.scope?.summary}
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                      {results?.scope?.workItems?.map((cat, i) => (
+                        <div key={i}>
+                          <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: "#C4A882", letterSpacing: "0.1em", padding: "10px 0 6px", borderTop: i > 0 ? "1px solid #EAE4D9" : "none" }}>
+                            {cat.category?.toUpperCase()}
+                          </div>
+                          {cat.items?.map((item, j) => (
+                            <div key={j} style={{ display: "flex", gap: 10, padding: "6px 0", alignItems: "flex-start" }}>
+                              <span style={{ color: "#C4A882", fontSize: 14, flexShrink: 0, marginTop: 1 }}>✓</span>
+                              <span style={{ fontSize: 13, color: "#555", fontWeight: 300, lineHeight: 1.6 }}>{item}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1455,7 +1535,16 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                     <tbody>
                       {results.materials?.map((m, i) => (
                         <tr key={i} className="material-row">
-                          <td style={{ padding: "12px 16px" }}><span className="tag">{m.zone}</span></td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                              <img
+                                src={getMaterialImage(m.item, m.specification)}
+                                alt={m.item}
+                                style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4, flexShrink: 0 }}
+                              />
+                              <span className="tag">{m.zone}</span>
+                            </div>
+                          </td>
                           <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 500 }}>{m.item}</td>
                           <td style={{ padding: "12px 16px", fontSize: 12, color: "#666", fontWeight: 300, maxWidth: 180 }}>{m.specification}</td>
                           <td style={{ padding: "12px 16px" }}>
@@ -1623,6 +1712,23 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                             }}
                           >
                             Search IKEA UAE
+                          </a>
+                          <a
+                            href={`https://www.google.com/search?q=${encodeURIComponent(item.brand + " " + item.model + " UAE")}&tbm=isch`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              padding: "8px 16px",
+                              background: "#FFF",
+                              border: "1px solid #EAE4D9",
+                              borderRadius: 2,
+                              fontSize: 12,
+                              color: "#444",
+                              textDecoration: "none",
+                              fontFamily: "'DM Sans', sans-serif",
+                            }}
+                          >
+                            See photos →
                           </a>
                         </div>
 
