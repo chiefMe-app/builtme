@@ -60,15 +60,18 @@ Return ONLY valid JSON:
   "styleExtracted": "brief description of the style seen in references",
   "products": [
     {
-      "name": "product name (short, 3-5 words)",
-      "description": "brief description matching reference style",
-      "category": "sofa/chair/table/lighting/rug/curtain/decor",
-      "priceRange": "XXX–XXX",
-      "renderDescription": "exact description for AI render e.g. 'cream linen L-shape sofa with scatter cushions'"
+      "category": "sofa/coffee table/rug/lighting/decor",
+      "itemName": "generic item name e.g. '3-Seat Sofa'",
+      "renderDescription": "description for render e.g. 'cream linen 3-seat sofa'",
+      "options": [
+        {"name": "specific product 1", "brand": "Noon/IKEA/Amazon", "price": "XXX", "tier": "budget"},
+        {"name": "specific product 2", "brand": "brand", "price": "XXX", "tier": "mid"},
+        {"name": "specific product 3", "brand": "brand", "price": "XXX", "tier": "premium"}
+      ]
     }
   ]
 }
-Return max 6 products. Only products relevant to the room type.`
+Return max 5 item categories, each with 3 options matching budget ${budget}.`
           }
         ]
       }]

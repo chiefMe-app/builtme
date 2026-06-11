@@ -92,12 +92,18 @@ interface ScopeOfWork {
   workItems: ScopeWorkCategory[];
 }
 
-interface ExtractedProduct {
+interface ExtractedProductOption {
   name: string;
-  description: string;
+  brand: string;
+  price: string;
+  tier: string;
+}
+
+interface ExtractedProduct {
   category: string;
-  priceRange: string;
+  itemName: string;
   renderDescription?: string;
+  options: ExtractedProductOption[];
 }
 
 interface BuiltMeResult {
@@ -690,10 +696,11 @@ export default function BuiltMe() {
     setAllRenders([]);
 
     const productsPrompt = selectedProducts.length > 0
-      ? `Place these specific items: ${extractedProducts
-          .filter(p => selectedProducts.includes(p.name))
-          .map(p => p.renderDescription || p.name)
-          .join(", ")}.`
+      ? "Replace with these specific items: " + selectedProducts.map(key => {
+          const [itemName] = key.split("__");
+          const product = extractedProducts.find(p => p.itemName === itemName);
+          return product?.renderDescription || itemName;
+        }).join(", ") + "."
       : "";
 
     const changeInstruction = buildChangeInstruction();
@@ -2338,43 +2345,41 @@ export default function BuiltMe() {
                         <p style={{ fontSize: 13, color: "#888", marginBottom: 16, fontWeight: 300 }}>
                           Select which products to include in your render. These will be placed in your room.
                         </p>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                        <div style={{ marginBottom: 20 }}>
                           {extractedProducts.map((product, i) => (
-                            <div
-                              key={i}
-                              onClick={() => {
-                                setSelectedProducts(prev =>
-                                  prev.includes(product.name)
-                                    ? prev.filter(p => p !== product.name)
-                                    : [...prev, product.name]
-                                );
-                              }}
-                              style={{
-                                display: "flex", gap: 14, alignItems: "center",
-                                padding: 16, borderRadius: 4, cursor: "pointer",
-                                border: `1px solid ${selectedProducts.includes(product.name) ? "#C4A882" : "#EAE4D9"}`,
-                                background: selectedProducts.includes(product.name) ? "#FBF8F4" : "#FFF",
-                                transition: "all 0.2s",
-                              }}
-                            >
-                              <div style={{
-                                width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
-                                border: `2px solid ${selectedProducts.includes(product.name) ? "#C4A882" : "#DDD"}`,
-                                background: selectedProducts.includes(product.name) ? "#C4A882" : "transparent",
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                              }}>
-                                {selectedProducts.includes(product.name) && <span style={{ color: "#FFF", fontSize: 11 }}>✓</span>}
+                            <div key={i} style={{ marginBottom: 20 }}>
+                              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                                {product.category?.toUpperCase()} — CHOOSE ONE
                               </div>
-                              <img src={getFurnitureImage(product.name)} alt={product.name} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 2 }}>{product.name}</div>
-                                <div style={{ fontSize: 12, color: "#888" }}>{product.description}</div>
-                                <div style={{ fontSize: 12, color: "#C4A882", marginTop: 4 }}>~AED {product.priceRange}</div>
-                              </div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
-                                <a href={`https://www.noon.com/uae-en/search/?q=${encodeURIComponent(product.name)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>Noon →</a>
-                                <a href={`https://www.amazon.ae/s?k=${encodeURIComponent(product.name)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>Amazon AE →</a>
-                                <a href={`https://www.ikea.com/ae/en/search/?q=${encodeURIComponent(product.name)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: "#0058A3", textDecoration: "none" }}>IKEA UAE →</a>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                                {product.options?.map((opt, j) => {
+                                  const optionKey = `${product.itemName}__${opt.name}`;
+                                  const isSelected = selectedProducts.includes(optionKey);
+                                  return (
+                                    <div
+                                      key={j}
+                                      onClick={() => {
+                                        const categoryPrefix = `${product.itemName}__`;
+                                        setSelectedProducts(prev => {
+                                          const withoutCategory = prev.filter(p => !p.startsWith(categoryPrefix));
+                                          return isSelected ? withoutCategory : [...withoutCategory, optionKey];
+                                        });
+                                      }}
+                                      style={{
+                                        padding: 12, borderRadius: 4, cursor: "pointer",
+                                        border: `1px solid ${isSelected ? "#C4A882" : "#EAE4D9"}`,
+                                        background: isSelected ? "#FBF8F4" : "#FFF",
+                                        transition: "all 0.2s",
+                                      }}
+                                    >
+                                      <img src={getFurnitureImage(product.itemName)} alt={opt.name} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, marginBottom: 8 }} />
+                                      <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 2 }}>{opt.name}</div>
+                                      <div style={{ fontSize: 11, color: "#888" }}>{opt.brand}</div>
+                                      <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>AED {opt.price}</div>
+                                      <span style={{ fontSize: 9, fontFamily: "monospace", color: "#AAA", textTransform: "uppercase" }}>{opt.tier}</span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           ))}
@@ -2498,7 +2503,7 @@ export default function BuiltMe() {
                         <div className="mono" style={{ fontSize: 10, color: "#C4A882", marginBottom: 8 }}>PRODUCTS TO RENDER</div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {selectedProducts.map((p, i) => (
-                            <span key={i} style={{ fontSize: 12, background: "#F0EBE2", color: "#7A6A55", padding: "4px 10px", borderRadius: 20 }}>{p}</span>
+                            <span key={i} style={{ fontSize: 12, background: "#F0EBE2", color: "#7A6A55", padding: "4px 10px", borderRadius: 20 }}>{p.split("__")[1] || p}</span>
                           ))}
                         </div>
                       </div>

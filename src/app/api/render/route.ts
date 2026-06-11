@@ -44,14 +44,6 @@ export async function POST(req: NextRequest) {
 
     const imageUrl = urlData.publicUrl;
 
-    // Build explicit keep list from what user did NOT select
-    const allPossibleItems = [
-      "sofa and seating", "dining table and chairs", "lighting fixtures",
-      "wall colour", "rugs", "curtains", "coffee table", "TV unit",
-      "decorative accessories", "kitchen", "kitchen appliances",
-      "doorways and passages", "architectural openings"
-    ];
-
     const changeLabels: Record<string, string> = {
       sofa: "sofa and seating",
       dining: "dining table and chairs",
@@ -65,27 +57,25 @@ export async function POST(req: NextRequest) {
     };
 
     const changingItems = (whatToChange || []).map((id: string) => changeLabels[id]).filter(Boolean);
-    const keepingItems = allPossibleItems.filter(item => !changingItems.includes(item));
 
-    const editPrompt = `Make MINIMAL edits to this room photo.
+    const editPrompt = `This is a precise furniture replacement task.
 
-CHANGE ONLY these specific items: ${changingItems.length > 0 ? changingItems.join(", ") : "furniture style and decor"}.
-
-DO NOT TOUCH OR REMOVE these items - they must remain exactly as they are:
-${keepingItems.join(", ")}.
-
-CRITICAL RULES:
-- Every doorway, passage, and architectural opening must remain OPEN and VISIBLE
-- The kitchen area visible through openings must remain unchanged
-- Dining table and chairs must stay in their exact positions unless "dining table" is in the change list
-- All walls, floor tiles, ceiling, windows stay exactly the same
-- Only replace the specific items listed above, nothing else
-- Same camera angle and perspective
+REPLACE these exact items with new versions, keeping them in the SAME position:
+${changingItems.join(", ") || "the sofa"}.
 
 ${productsPrompt}
-${renderPromptExtra || ""}
 
-Photorealistic interior photo, same lighting conditions as original.`.trim();
+ABSOLUTE RULES - violating these ruins the result:
+1. Do NOT change the room layout or furniture positions
+2. If there is a dining table, it STAYS a dining table in the same spot
+3. If there is a sofa, the new sofa goes in the EXACT same position
+4. Do NOT close, open, or modify any doorway, window, or wall opening
+5. Do NOT change the kitchen or anything visible through doorways
+6. Keep floor, ceiling, walls, and all architecture identical
+7. Same camera angle, same perspective, same lighting
+
+Only swap the furniture STYLE, never the furniture TYPE or POSITION.
+${renderPromptExtra || ""}`.trim();
 
     // Configure FAL client
     fal.config({ credentials: process.env.FAL_KEY });
@@ -93,7 +83,7 @@ Photorealistic interior photo, same lighting conditions as original.`.trim();
     // Submit to FAL queue
     let request_id: string;
     try {
-      const submission = await fal.queue.submit("fal-ai/flux-pro/kontext", {
+      const submission = await fal.queue.submit("fal-ai/flux-pro/kontext/max", {
         input: {
           prompt: editPrompt,
           image_url: imageUrl,

@@ -20,13 +20,13 @@ export async function GET(req: NextRequest) {
     if (provider === "fal") {
       fal.config({ credentials: process.env.FAL_KEY });
 
-      const status = await fal.queue.status("fal-ai/flux-pro/kontext", {
+      const status = await fal.queue.status("fal-ai/flux-pro/kontext/max", {
         requestId: predictionId,
         logs: false,
       });
 
       if (status.status === "COMPLETED") {
-        const result = await fal.queue.result("fal-ai/flux-pro/kontext", {
+        const result = await fal.queue.result("fal-ai/flux-pro/kontext/max", {
           requestId: predictionId,
         });
 
