@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
+import { enrichProductImages } from "@/lib/productImageEnrichment";
 
 export const maxDuration = 120;
 
@@ -64,14 +65,20 @@ Return ONLY valid JSON:
       "itemName": "generic item name e.g. '3-Seat Sofa'",
       "renderDescription": "description for render e.g. 'cream linen 3-seat sofa'",
       "options": [
-        {"name": "specific product 1", "brand": "Noon/IKEA/Amazon", "price": "XXX", "tier": "budget"},
-        {"name": "specific product 2", "brand": "brand", "price": "XXX", "tier": "mid"},
-        {"name": "specific product 3", "brand": "brand", "price": "XXX", "tier": "premium"}
+        {"name": "specific product 1", "brand": "IKEA UAE / Amazon AE / Noon / Home Centre / 2XL / etc.", "price": "XXX", "tier": "budget", "productUrl": "", "imageUrl": ""},
+        {"name": "specific product 2", "brand": "brand", "price": "XXX", "tier": "mid", "productUrl": "", "imageUrl": ""},
+        {"name": "specific product 3", "brand": "brand", "price": "XXX", "tier": "premium", "productUrl": "", "imageUrl": ""}
       ]
     }
   ]
 }
-Return max 5 item categories, each with 3 options matching budget ${budget}.`
+Return max 5 item categories, each with 3 options matching budget ${budget}.
+
+URL rules (critical):
+- Only fill productUrl or imageUrl if you are CONFIDENT it is a real, direct URL for that exact product.
+- If unsure, return an empty string "".
+- NEVER invent or guess URLs. NEVER use unrelated images or generic web images.
+- An empty imageUrl is always better than a wrong one.`
           }
         ]
       }]
@@ -85,6 +92,12 @@ Return max 5 item categories, each with 3 options matching budget ${budget}.`
     const end = text.lastIndexOf("}");
     if (start === -1 || end === -1) throw new Error("No JSON in response");
     const parsed = JSON.parse(text.slice(start, end + 1));
+
+    // Blank any image/product URLs that aren't from trusted shop domains —
+    // the UI then falls back to safe local category images
+    if (Array.isArray(parsed.products)) {
+      parsed.products = await enrichProductImages(parsed.products);
+    }
 
     return NextResponse.json(parsed);
   } catch (err) {

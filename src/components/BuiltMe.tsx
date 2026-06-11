@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { isValidProductImageUrl, isValidProductUrl } from "@/lib/validateProductImage";
 import type { User } from "@supabase/supabase-js";
 
 interface ColorSwatch {
@@ -97,6 +98,8 @@ interface ExtractedProductOption {
   brand: string;
   price: string;
   tier: string;
+  productUrl?: string;
+  imageUrl?: string;
 }
 
 interface ObjectBbox {
@@ -260,59 +263,33 @@ const CHANGE_OPTIONS = [
   { id: "existing_only", label: "Rearrange existing only", icon: "↔️" },
 ];
 
+// Safe local category fallback images — every image visually verified.
+// Used whenever a product has no validated real product image.
+const FALLBACK_PRODUCT_IMAGES: Record<string, string> = {
+  sofa: "/images/fallbacks/sofa.jpg",
+  "coffee table": "/images/fallbacks/coffee-table.jpg",
+  rug: "/images/fallbacks/rug.jpg",
+  lighting: "/images/fallbacks/lighting.jpg",
+  decor: "/images/fallbacks/decor.jpg",
+  chair: "/images/fallbacks/chair.jpg",
+  "dining table": "/images/fallbacks/dining-table.jpg",
+};
+
 const getFurnitureImage = (item: string) => {
   const term = item.toLowerCase();
-  if (term.includes("handle") || term.includes("knob") || term.includes("pull"))
-    return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=120&q=80";
-  if (term.includes("led") || term.includes("strip light") || term.includes("under-cabinet"))
-    return "https://images.unsplash.com/photo-1565814636199-ae8133055c1c?w=120&q=80";
-  if (term.includes("organiser") || term.includes("organizer") || term.includes("spice rack"))
-    return "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=120&q=80";
-  if (term.includes("pendant") || term.includes("chandelier") || term.includes("ceiling light"))
-    return "https://images.unsplash.com/photo-1524484485831-a92ffc0de03f?w=120&q=80";
-  if (term.includes("floor lamp") || term.includes("table lamp"))
-    return "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=120&q=80";
-  if (term.includes("bar stool") || term.includes("counter stool"))
-    return "https://images.unsplash.com/photo-1503602642458-232111445657?w=120&q=80";
-  if (term.includes("dining chair") || term.includes("chair"))
-    return "https://images.unsplash.com/photo-1592078615290-033ee584e267?w=120&q=80";
-  if (term.includes("sofa") || term.includes("couch") || term.includes("sectional"))
-    return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
-  if (term.includes("coffee table"))
-    return "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?w=120&q=80";
-  if (term.includes("dining table"))
-    return "https://images.unsplash.com/photo-1615876234886-fd9a39fda97f?w=120&q=80";
-  if (term.includes("shelf") || term.includes("bookcase") || term.includes("floating shelf"))
-    return "https://images.unsplash.com/photo-1594654281943-e1fbf41d1f65?w=120&q=80";
+  if (term.includes("sofa") || term.includes("couch") || term.includes("sectional") || term.includes("bed") || term.includes("headboard") || term.includes("cushion") || term.includes("pillow") || term.includes("throw"))
+    return FALLBACK_PRODUCT_IMAGES.sofa;
+  if (term.includes("dining table") || term.includes("dining"))
+    return FALLBACK_PRODUCT_IMAGES["dining table"];
+  if (term.includes("coffee table") || term.includes("side table") || term.includes("console") || term.includes("tv unit") || term.includes("media") || term.includes("shelf") || term.includes("bookcase") || term.includes("table"))
+    return FALLBACK_PRODUCT_IMAGES["coffee table"];
+  if (term.includes("chair") || term.includes("stool") || term.includes("armchair") || term.includes("seat"))
+    return FALLBACK_PRODUCT_IMAGES.chair;
   if (term.includes("rug") || term.includes("carpet"))
-    return "https://images.unsplash.com/photo-1600166898405-da9535204843?w=120&q=80";
-  if (term.includes("curtain") || term.includes("blind") || term.includes("drape"))
-    return "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=120&q=80";
-  if (term.includes("plant") || term.includes("pot") || term.includes("planter"))
-    return "https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=120&q=80";
-  if (term.includes("mirror"))
-    return "https://images.unsplash.com/photo-1618219740975-d40978bb7378?w=120&q=80";
-  if (term.includes("tv unit") || term.includes("media") || term.includes("console"))
-    return "https://images.unsplash.com/photo-1593085512500-5d55148d6f0d?w=120&q=80";
-  if (term.includes("bed") || term.includes("headboard"))
-    return "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=120&q=80";
-  if (term.includes("wardrobe") || term.includes("closet"))
-    return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=120&q=80";
-  if (term.includes("towel") || term.includes("rail") || term.includes("hook"))
-    return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=120&q=80";
-  if (term.includes("canister") || term.includes("jar") || term.includes("storage box"))
-    return "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=120&q=80";
-  if (term.includes("art") || term.includes("print") || term.includes("frame") || term.includes("poster"))
-    return "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=120&q=80";
-  if (term.includes("cushion") || term.includes("pillow") || term.includes("throw"))
-    return "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=120&q=80";
-  if (term.includes("shower") || term.includes("screen") || term.includes("partition"))
-    return "https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=120&q=80";
-  if (term.includes("vanity") || term.includes("basin") || term.includes("sink"))
-    return "https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=120&q=80";
-  if (term.includes("tap") || term.includes("faucet"))
-    return "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=120&q=80";
-  return "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=120&q=80";
+    return FALLBACK_PRODUCT_IMAGES.rug;
+  if (term.includes("light") || term.includes("lamp") || term.includes("pendant") || term.includes("chandelier") || term.includes("led"))
+    return FALLBACK_PRODUCT_IMAGES.lighting;
+  return FALLBACK_PRODUCT_IMAGES.decor;
 };
 
 const getMaterialImage = (item: string, specification: string) => {
@@ -347,29 +324,6 @@ const getMaterialImage = (item: string, specification: string) => {
     return "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=80&q=80";
   return "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=80&q=80";
 };
-
-// Shows a real product photo found via image search, falling back to a stock image
-function ProductImage({ query, fallback, alt, style }: { query: string; fallback: string; alt: string; style: React.CSSProperties }) {
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetch(`/api/product-image?q=${encodeURIComponent(query)}`)
-      .then(r => r.json())
-      .then(d => { if (alive && d.images?.[0]) setSrc(d.images[0]); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [query]);
-
-  return (
-    <img
-      src={src || fallback}
-      alt={alt}
-      style={style}
-      onError={() => { if (src) setSrc(fallback); }}
-    />
-  );
-}
 
 export default function BuiltMe() {
   const router = useRouter();
@@ -2567,6 +2521,15 @@ export default function BuiltMe() {
                                 {product.options?.map((opt, j) => {
                                   const optionKey = `${product.itemName}__${opt.name}`;
                                   const isSelected = selectedProducts.includes(optionKey);
+                                  // Only show validated real product images; otherwise safe category fallback
+                                  const imageSrc = isValidProductImageUrl({
+                                    imageUrl: opt.imageUrl,
+                                    productName: opt.name,
+                                    category: product.category,
+                                    brand: opt.brand,
+                                  })
+                                    ? opt.imageUrl!
+                                    : getFurnitureImage(product.category || product.itemName);
                                   return (
                                     <div
                                       key={j}
@@ -2584,11 +2547,31 @@ export default function BuiltMe() {
                                         transition: "all 0.2s",
                                       }}
                                     >
-                                      <ProductImage query={`${opt.name} ${opt.brand} furniture`} fallback={getFurnitureImage(product.itemName)} alt={opt.name} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, marginBottom: 8 }} />
+                                      <img
+                                        src={imageSrc}
+                                        alt={opt.name}
+                                        onError={(e) => {
+                                          e.currentTarget.src = getFurnitureImage(product.category || product.itemName);
+                                        }}
+                                        style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, marginBottom: 8, background: "#F7F3EC" }}
+                                      />
                                       <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 2 }}>{opt.name}</div>
                                       <div style={{ fontSize: 11, color: "#888" }}>{opt.brand}</div>
                                       <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>AED {opt.price}</div>
-                                      <span style={{ fontSize: 9, fontFamily: "monospace", color: "#AAA", textTransform: "uppercase" }}>{opt.tier}</span>
+                                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                                        <span style={{ fontSize: 9, fontFamily: "monospace", color: "#AAA", textTransform: "uppercase" }}>{opt.tier}</span>
+                                        {isValidProductUrl(opt.productUrl) && (
+                                          <a
+                                            href={opt.productUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            onClick={e => e.stopPropagation()}
+                                            style={{ fontSize: 10, color: "#C4A882", textDecoration: "none" }}
+                                          >
+                                            View product →
+                                          </a>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
