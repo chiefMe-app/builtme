@@ -57,13 +57,12 @@ Keep all walls, windows, doors, floor, ceiling, structural elements exactly the 
     // Submit to FAL queue
     let request_id: string;
     try {
-      const submission = await fal.queue.submit("fal-ai/flux-kontext-pro", {
+      const submission = await fal.queue.submit("fal-ai/flux-pro/kontext", {
         input: {
           prompt: editPrompt,
           image_url: imageUrl,
           num_images: 2,
           guidance_scale: 3.5,
-          num_inference_steps: 28,
           output_format: "jpeg",
         },
       });
