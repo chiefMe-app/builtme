@@ -92,6 +92,14 @@ interface ScopeOfWork {
   workItems: ScopeWorkCategory[];
 }
 
+interface ExtractedProduct {
+  name: string;
+  description: string;
+  category: string;
+  priceRange: string;
+  renderDescription?: string;
+}
+
 interface BuiltMeResult {
   styleProfile?: StyleProfile;
   spaceAnalysis?: SpaceAnalysis;
@@ -346,9 +354,16 @@ export default function BuiltMe() {
   const [savedRoomPhotos, setSavedRoomPhotos] = useState<File[]>([]);
   const [selectedRenderPhoto, setSelectedRenderPhoto] = useState(0);
   const [savedProjectId, setSavedProjectId] = useState<string | null>(null);
+  const [referencePhotos, setReferencePhotos] = useState<File[]>([]);
+  const [savedReferencePhotos, setSavedReferencePhotos] = useState<File[]>([]);
+  const [renderStep, setRenderStep] = useState<"references" | "products" | "render">("references");
+  const [extractedProducts, setExtractedProducts] = useState<ExtractedProduct[]>([]);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [extractingProducts, setExtractingProducts] = useState(false);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
+  const referencePhotosRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -378,6 +393,11 @@ export default function BuiltMe() {
     setPrompt("");
     setReferences([]);
     setSavedProjectId(null);
+    setReferencePhotos([]);
+    setSavedReferencePhotos([]);
+    setRenderStep("references");
+    setExtractedProducts([]);
+    setSelectedProducts([]);
     setScreen("configure");
   };
 
@@ -497,6 +517,7 @@ export default function BuiltMe() {
     setIsLoading(true);
     setSavedUserType(userType || "styling");
     setSavedRoomPhotos(roomPhotos);
+    setSavedReferencePhotos(referencePhotos);
     try {
       const categoryLabel = getCategoryLabel();
       const budgetLabel = BUDGET_OPTIONS.find((b) => b.id === budget)?.label ?? budget ?? "";
@@ -522,6 +543,11 @@ export default function BuiltMe() {
       references.slice(0, 2).forEach(ref => {
         formData.append("referenceImages", ref);
       });
+      if (referencePhotos.length > 0) {
+        referencePhotos.slice(0, 3).forEach((ref) => {
+          formData.append("referenceImages", ref);
+        });
+      }
 
       const response = await fetch("/api/analyse", {
         method: "POST",
@@ -586,6 +612,38 @@ export default function BuiltMe() {
     return "";
   };
 
+  const extractProductsFromReferences = async () => {
+    if (savedReferencePhotos.length === 0) return;
+    setExtractingProducts(true);
+
+    try {
+      const formData = new FormData();
+      savedReferencePhotos.forEach((photo, i) => {
+        formData.append(`reference_${i}`, photo);
+      });
+      formData.append("category", savedUserType || "styling");
+      formData.append("budget", budget || "");
+      formData.append("existingAnalysis", JSON.stringify({
+        style: results?.styleProfile?.dominantStyle,
+        colors: results?.styleProfile?.colorPalette,
+        room: results?.spaceAnalysis?.roomType,
+      }));
+
+      const res = await fetch("/api/extract-products", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.products) {
+        setExtractedProducts(data.products);
+        setRenderStep("products");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    setExtractingProducts(false);
+  };
+
   const generateRenders = async (updatedResults?: typeof results) => {
     const photoToUse = savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0] || roomPhoto || null;
     if (!photoToUse) {
@@ -608,9 +666,17 @@ export default function BuiltMe() {
 
       const changeInstruction = buildChangeInstruction();
 
+      const productsPrompt = selectedProducts.length > 0
+        ? `Place these specific items in the room: ${extractedProducts
+            .filter(p => selectedProducts.includes(p.name))
+            .map(p => p.renderDescription || p.name)
+            .join(", ")}.`
+        : "";
+
       const fullPrompt = `${prompt}.
 Use these exact materials: ${materialsSummary}.
 Color palette: ${colorSummary}.
+${productsPrompt}
 ${changeInstruction}
 ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
 
@@ -1177,11 +1243,53 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 </div>
               </div>
 
+              <div style={{ marginTop: 24 }}>
+                <div className="mono" style={{ fontSize: 11, color: "#AAA", letterSpacing: "0.12em", marginBottom: 6 }}>
+                  STYLE REFERENCES <span style={{ color: "#888", fontWeight: 300 }}>(optional)</span>
+                </div>
+                <div style={{ fontSize: 12, color: "#AAA", marginBottom: 10 }}>
+                  Upload Pinterest screenshots, magazine pages, or rooms you love. AI will match this style.
+                </div>
+                <div
+                  className={`upload-zone ${referencePhotos.length > 0 ? "has-file" : ""}`}
+                  onClick={() => referencePhotosRef.current?.click()}
+                  style={{ padding: 16 }}
+                >
+                  <input
+                    ref={referencePhotosRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []).slice(0, 5);
+                      setReferencePhotos(files);
+                    }}
+                    style={{ display: "none" }}
+                  />
+                  {referencePhotos.length > 0 ? (
+                    <div>
+                      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                        {referencePhotos.map((f, i) => (
+                          <img key={i} src={URL.createObjectURL(f)} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 4 }} />
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 500, textAlign: "center" }}>{referencePhotos.length} reference{referencePhotos.length > 1 ? "s" : ""} added</div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>🎨</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Add style references</div>
+                      <div style={{ fontSize: 12, color: "#AAA" }}>Pinterest, Instagram, magazine — any inspiration</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <button
                 className="btn-primary"
                 disabled={roomPhotos.length === 0}
                 onClick={() => setConfigStep(4)}
-                style={{ width: "100%", fontSize: 15, padding: "16px" }}
+                style={{ width: "100%", fontSize: 15, padding: "16px", marginTop: 32 }}
               >
                 Continue →
               </button>
@@ -2116,151 +2224,304 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
             {/* RENDERS TAB */}
             {activeTab === "renders" && (
               <div className="fade-in">
-                {renders.length === 0 && (
-                  <div style={{ textAlign: "center", padding: "60px 0 24px" }}>
-                    <div style={{ fontSize: 48, marginBottom: 16 }}>🎨</div>
-                    <div className="serif" style={{ fontSize: 24, marginBottom: 8 }}>Generate AI Renders</div>
-                    <p style={{ color: "#888", marginBottom: 24, fontSize: 14 }}>Upload a photo of your current room to see the AI transformation</p>
-                  </div>
-                )}
 
-                <div style={{ maxWidth: 400, margin: renders.length === 0 ? "0 auto 24px" : "0 0 28px" }}>
-                  {savedRoomPhotos.length > 0 && (
-                    <div style={{ marginBottom: 20 }}>
-                      <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 10 }}>
-                        YOUR ROOM PHOTOS — {savedRoomPhotos.length} uploaded
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {savedRoomPhotos.map((photo, i) => (
-                          <div key={i} style={{ position: "relative" }}>
-                            <img
-                              src={URL.createObjectURL(photo)}
-                              alt={`Room photo ${i + 1}`}
-                              style={{
-                                width: 80, height: 80,
-                                objectFit: "cover",
-                                borderRadius: 4,
-                                border: selectedRenderPhoto === i ? "2px solid #C4A882" : "2px solid #EAE4D9",
-                                cursor: savedRoomPhotos.length > 1 ? "pointer" : "default",
-                              }}
-                              onClick={() => savedRoomPhotos.length > 1 && setSelectedRenderPhoto(i)}
-                            />
-                            {savedRoomPhotos.length > 1 && (
-                              <div style={{
-                                position: "absolute", bottom: 4, right: 4,
-                                background: selectedRenderPhoto === i ? "#C4A882" : "#00000066",
-                                borderRadius: "50%", width: 16, height: 16,
-                                display: "flex", alignItems: "center", justifyContent: "center"
-                              }}>
-                                <span style={{ color: "#FFF", fontSize: 9 }}>{i + 1}</span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      {savedRoomPhotos.length > 1 && (
-                        <div style={{ fontSize: 12, color: "#AAA", marginTop: 8 }}>
-                          Tap a photo to select which angle to render
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {savedRoomPhotos.length === 0 && (
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>
-                        No photos found for this project.
-                      </div>
-                      <div
-                        className="upload-zone"
-                        onClick={() => renderPhotoRef.current?.click()}
-                        style={{ padding: "16px", textAlign: "center", cursor: "pointer" }}
-                      >
-                        <input
-                          ref={renderPhotoRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              setSavedRoomPhotos([file]);
-                              setSelectedRenderPhoto(0);
-                            }
-                          }}
-                          style={{ display: "none" }}
-                        />
-                        <div style={{ fontSize: 13, color: "#AAA" }}>Upload a room photo to generate render</div>
-                      </div>
-                    </div>
-                  )}
-
-                  <input
-                    className="input-field"
-                    value={renderPromptExtra}
-                    onChange={e => setRenderPromptExtra(e.target.value)}
-                    placeholder="Any specific changes for this render?"
-                    style={{ marginBottom: 12 }}
-                  />
-
-                  <div style={{ display: "flex", gap: 10, justifyContent: renders.length === 0 ? "center" : "flex-start", flexWrap: "wrap" }}>
+                {/* Step indicator */}
+                <div style={{ display: "flex", gap: 0, marginBottom: 24, background: "#FAF8F5", borderRadius: 4, padding: 4 }}>
+                  {[
+                    { id: "references", label: "1. Style References" },
+                    { id: "products", label: "2. Real Products" },
+                    { id: "render", label: "3. AI Render" },
+                  ].map((step) => (
                     <button
-                      className="btn-primary"
-                      onClick={() => generateRenders()}
-                      disabled={renderLoading || (savedRoomPhotos.length === 0 && !roomPhoto)}
-                      style={{ fontSize: 14, padding: "14px 36px" }}
+                      key={step.id}
+                      onClick={() => setRenderStep(step.id as "references" | "products" | "render")}
+                      style={{
+                        flex: 1, padding: "10px 8px",
+                        background: renderStep === step.id ? "#1A1A1A" : "transparent",
+                        color: renderStep === step.id ? "#F7F4EF" : "#888",
+                        border: "none", borderRadius: 4, cursor: "pointer",
+                        fontSize: 12, fontFamily: "'DM Sans', sans-serif",
+                        fontWeight: renderStep === step.id ? 500 : 300,
+                        transition: "all 0.2s",
+                      }}
                     >
-                      {renderLoading ? "Generating renders..." : renders.length === 0 ? "Generate renders →" : "Regenerate renders"}
+                      {step.label}
                     </button>
-                    {renders.length > 0 && (
-                      <button
-                        className="btn-ghost"
-                        onClick={reAnalyseWithPrompt}
-                        disabled={renderLoading || isLoading || !renderPromptExtra.trim()}
-                        style={{ fontSize: 14, padding: "14px 36px" }}
-                      >
-                        {renderLoading || isLoading ? "Updating design..." : "Update design & render →"}
-                      </button>
-                    )}
-                  </div>
+                  ))}
                 </div>
 
-                {renders.length > 0 && (
-                  <div className="fade-in">
-                    <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 20 }}>BEFORE → AFTER TRANSFORMATION</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-                      {/* BEFORE */}
-                      <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                        {(savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0] || roomPhotoUrl || roomPhoto) && (
-                          <img src={savedRoomPhotos[selectedRenderPhoto] ? URL.createObjectURL(savedRoomPhotos[selectedRenderPhoto]) : savedRoomPhotos[0] ? URL.createObjectURL(savedRoomPhotos[0]) : roomPhotoUrl || (roomPhoto ? URL.createObjectURL(roomPhoto) : "")} alt="Before" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
-                        )}
-                        <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
-                          <span style={{ fontSize: 11, color: "#999" }}>Current space</span>
-                        </div>
-                      </div>
-                      {/* AFTER */}
-                      <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                        <img src={renders[0]} alt="After" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
-                        <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
-                          <a href={renders[0]} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
-                        </div>
-                      </div>
+                {/* Step 1: References */}
+                {renderStep === "references" && (
+                  <div>
+                    <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
+                      YOUR STYLE REFERENCES
                     </div>
-                    {renders.length > 1 && (
+
+                    {savedReferencePhotos.length > 0 ? (
                       <div>
-                        <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 12 }}>MORE CONCEPTS</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                          {renders.slice(1).map((img, i) => (
-                            <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                              <img src={img} alt={`Concept ${i + 2}`} style={{ width: "100%", height: 160, objectFit: "cover", display: "block" }} />
-                              <div style={{ padding: "8px 12px", background: "#FFF", display: "flex", justifyContent: "space-between" }}>
-                                <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 2}</span>
-                                <a href={img} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View →</a>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
+                          {savedReferencePhotos.map((photo, i) => (
+                            <div key={i} style={{ position: "relative", borderRadius: 4, overflow: "hidden", aspectRatio: "1" }}>
+                              <img
+                                src={URL.createObjectURL(photo)}
+                                alt={`Reference ${i + 1}`}
+                                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              />
+                              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, #00000066)", padding: "12px 8px 6px" }}>
+                                <span style={{ fontSize: 10, color: "#FFF", fontFamily: "monospace" }}>REF {i + 1}</span>
                               </div>
                             </div>
                           ))}
                         </div>
+                        <button
+                          onClick={extractProductsFromReferences}
+                          disabled={extractingProducts}
+                          style={{
+                            width: "100%", padding: "14px 0",
+                            background: "#1A1A1A", color: "#F7F4EF",
+                            border: "none", borderRadius: 4, cursor: "pointer",
+                            fontSize: 14, fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+                          }}
+                        >
+                          {extractingProducts ? "Analysing your style references..." : "Find real products from these references →"}
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: "center", padding: "40px 0" }}>
+                        <div style={{ fontSize: 40, marginBottom: 12 }}>🎨</div>
+                        <div className="serif" style={{ fontSize: 20, marginBottom: 8 }}>No style references added</div>
+                        <p style={{ fontSize: 13, color: "#888", marginBottom: 20, fontWeight: 300 }}>
+                          You can still generate a render based on your AI analysis, or go back and add reference photos.
+                        </p>
+                        <button
+                          onClick={() => setRenderStep("render")}
+                          style={{
+                            padding: "12px 28px",
+                            background: "#FFF", color: "#1A1A1A",
+                            border: "1px solid #1A1A1A", borderRadius: 4, cursor: "pointer",
+                            fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                          }}
+                        >
+                          Skip — generate render from analysis →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 2: Real Products */}
+                {renderStep === "products" && (
+                  <div>
+                    <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
+                      REAL PRODUCTS FOUND IN DUBAI
+                    </div>
+
+                    {extractedProducts.length > 0 ? (
+                      <div>
+                        <p style={{ fontSize: 13, color: "#888", marginBottom: 16, fontWeight: 300 }}>
+                          Select which products to include in your render. These will be placed in your room.
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                          {extractedProducts.map((product, i) => (
+                            <div
+                              key={i}
+                              onClick={() => {
+                                setSelectedProducts(prev =>
+                                  prev.includes(product.name)
+                                    ? prev.filter(p => p !== product.name)
+                                    : [...prev, product.name]
+                                );
+                              }}
+                              style={{
+                                display: "flex", gap: 14, alignItems: "center",
+                                padding: 16, borderRadius: 4, cursor: "pointer",
+                                border: `1px solid ${selectedProducts.includes(product.name) ? "#C4A882" : "#EAE4D9"}`,
+                                background: selectedProducts.includes(product.name) ? "#FBF8F4" : "#FFF",
+                                transition: "all 0.2s",
+                              }}
+                            >
+                              <div style={{
+                                width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                                border: `2px solid ${selectedProducts.includes(product.name) ? "#C4A882" : "#DDD"}`,
+                                background: selectedProducts.includes(product.name) ? "#C4A882" : "transparent",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                              }}>
+                                {selectedProducts.includes(product.name) && <span style={{ color: "#FFF", fontSize: 11 }}>✓</span>}
+                              </div>
+                              <img src={getFurnitureImage(product.name)} alt={product.name} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 2 }}>{product.name}</div>
+                                <div style={{ fontSize: 12, color: "#888" }}>{product.description}</div>
+                                <div style={{ fontSize: 12, color: "#C4A882", marginTop: 4 }}>~AED {product.priceRange}</div>
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+                                <a href={`https://www.noon.com/uae-en/search/?q=${encodeURIComponent(product.name)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>Noon →</a>
+                                <a href={`https://www.amazon.ae/s?k=${encodeURIComponent(product.name)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>Amazon AE →</a>
+                                <a href={`https://www.ikea.com/ae/en/search/?q=${encodeURIComponent(product.name)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: "#0058A3", textDecoration: "none" }}>IKEA UAE →</a>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => setRenderStep("render")}
+                          disabled={selectedProducts.length === 0}
+                          style={{
+                            width: "100%", padding: "14px 0",
+                            background: selectedProducts.length > 0 ? "#1A1A1A" : "#EEE",
+                            color: selectedProducts.length > 0 ? "#F7F4EF" : "#AAA",
+                            border: "none", borderRadius: 4, cursor: selectedProducts.length > 0 ? "pointer" : "not-allowed",
+                            fontSize: 14, fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+                          }}
+                        >
+                          Apply {selectedProducts.length} product{selectedProducts.length !== 1 ? "s" : ""} to render →
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: "center", padding: "40px 0", color: "#AAA" }}>
+                        <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+                        <div>Analysing references and finding products...</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 3: Render */}
+                {renderStep === "render" && (
+                  <div>
+                    {/* Room photos strip */}
+                    {savedRoomPhotos.length > 0 ? (
+                      <div style={{ marginBottom: 20 }}>
+                        <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 10 }}>
+                          SELECT PHOTO TO RENDER — {savedRoomPhotos.length} available
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {savedRoomPhotos.map((photo, i) => (
+                            <div key={i} style={{ position: "relative", cursor: "pointer" }} onClick={() => setSelectedRenderPhoto(i)}>
+                              <img
+                                src={URL.createObjectURL(photo)}
+                                alt={`Room ${i + 1}`}
+                                style={{
+                                  width: 80, height: 80, objectFit: "cover", borderRadius: 4,
+                                  border: selectedRenderPhoto === i ? "2px solid #C4A882" : "2px solid #EAE4D9",
+                                }}
+                              />
+                              {selectedRenderPhoto === i && (
+                                <div style={{ position: "absolute", top: 4, right: 4, background: "#C4A882", borderRadius: "50%", width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                  <span style={{ color: "#FFF", fontSize: 9 }}>✓</span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>
+                          No photos found for this project.
+                        </div>
+                        <div
+                          className="upload-zone"
+                          onClick={() => renderPhotoRef.current?.click()}
+                          style={{ padding: "16px", textAlign: "center", cursor: "pointer" }}
+                        >
+                          <input
+                            ref={renderPhotoRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                setSavedRoomPhotos([file]);
+                                setSelectedRenderPhoto(0);
+                              }
+                            }}
+                            style={{ display: "none" }}
+                          />
+                          <div style={{ fontSize: 13, color: "#AAA" }}>Upload a room photo to generate render</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Selected products summary */}
+                    {selectedProducts.length > 0 && (
+                      <div style={{ background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4, padding: "12px 16px", marginBottom: 16 }}>
+                        <div className="mono" style={{ fontSize: 10, color: "#C4A882", marginBottom: 8 }}>PRODUCTS TO RENDER</div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {selectedProducts.map((p, i) => (
+                            <span key={i} style={{ fontSize: 12, background: "#F0EBE2", color: "#7A6A55", padding: "4px 10px", borderRadius: 20 }}>{p}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Extra prompt */}
+                    <div style={{ marginBottom: 16 }}>
+                      <input
+                        className="input-field"
+                        value={renderPromptExtra}
+                        onChange={e => setRenderPromptExtra(e.target.value)}
+                        placeholder="Any specific instructions? e.g. keep walls the same colour, lighter sofa..."
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+                      <button
+                        className="btn-primary"
+                        onClick={() => generateRenders()}
+                        disabled={renderLoading || (savedRoomPhotos.length === 0 && !roomPhoto)}
+                        style={{ flex: 1, fontSize: 14, padding: "14px 0" }}
+                      >
+                        {renderLoading ? "Generating render..." : renders.length === 0 ? "Generate AI render →" : "Regenerate render →"}
+                      </button>
+                      {renderPromptExtra.trim() && (
+                        <button
+                          className="btn-ghost"
+                          onClick={reAnalyseWithPrompt}
+                          disabled={renderLoading || isLoading}
+                          style={{ fontSize: 13, padding: "14px 20px" }}
+                        >
+                          {renderLoading || isLoading ? "Updating design..." : "Update design & render →"}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Before/After */}
+                    {renders.length > 0 && (
+                      <div className="fade-in">
+                        <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
+                          BEFORE → AFTER TRANSFORMATION
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+                          <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                            {(savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0] || roomPhotoUrl || roomPhoto) && (
+                              <img src={savedRoomPhotos[selectedRenderPhoto] ? URL.createObjectURL(savedRoomPhotos[selectedRenderPhoto]) : savedRoomPhotos[0] ? URL.createObjectURL(savedRoomPhotos[0]) : roomPhotoUrl || (roomPhoto ? URL.createObjectURL(roomPhoto) : "")} alt="Before" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
+                            )}
+                            <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between" }}>
+                              <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
+                              <span style={{ fontSize: 11, color: "#999" }}>Current space</span>
+                            </div>
+                          </div>
+                          <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                            <img src={renders[0]} alt="After" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
+                            <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between" }}>
+                              <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
+                              <a href={renders[0]} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
+                            </div>
+                          </div>
+                        </div>
+                        {renders.length > 1 && (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                            {renders.slice(1).map((img, i) => (
+                              <div key={i} style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                                <img src={img} alt={`Concept ${i + 2}`} style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }} />
+                                <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between" }}>
+                                  <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>CONCEPT {i + 2}</span>
+                                  <a href={img} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View →</a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
