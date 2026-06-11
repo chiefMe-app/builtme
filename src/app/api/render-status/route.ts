@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     } else if (typeof output === "string") {
       images = [output];
     } else if (output && typeof output === "object") {
-      images = Object.values(output) as string[];
+      images = (output as { images?: string[] }).images || (Object.values(output) as string[]);
     }
 
     return NextResponse.json({

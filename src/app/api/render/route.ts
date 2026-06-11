@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const prompt = formData.get("prompt") as string;
     const room = formData.get("room") as string | null;
+    const style = formData.get("style") as string | null;
+    const colorPalette = formData.get("colorPalette") as string | null;
     const imageFile = formData.get("image") as File | null;
 
     if (!imageFile || imageFile.size === 0) {
@@ -70,29 +72,27 @@ export async function POST(req: NextRequest) {
     const imageUrl = urlData.publicUrl;
 
     const roomType = room || "living room";
+    const changeList = prompt || "furniture, lighting, decor";
 
-    const renderPrompt = `${roomType} interior design renovation.
-    IMPORTANT: This is a ${roomType}. Do NOT add kitchen elements, kitchen cabinets, or appliances unless this is a kitchen.
-    Keep exact room structure: walls, windows, doors, ceiling, floor.
-    ONLY change: ${prompt}.
-    Photorealistic, high quality, Dubai apartment interior, natural light.`;
-
-    const negativePrompt = `change room structure, move walls, remove windows, remove doors,
-    different room layout, different room shape, different floor tiles, changed flooring,
-    new floor pattern, different floor color, replaced floor, different ceiling,
-    people, cartoon, sketch, unrealistic proportions, blurry, dark, ugly`;
+    const renderPrompt = `Professional interior design visualization. ${roomType} in a Dubai apartment.
+STRICTLY PRESERVE: floor material and pattern, ceiling height and material, all walls, all windows, all doors, room dimensions, fixed appliances positions, structural columns.
+ONLY CHANGE: ${changeList}.
+Style: ${style || "modern"}.
+Colors: ${colorPalette || "neutral warm tones"}.
+Ultra photorealistic, architectural visualization, 8K quality, perfect lighting, no distortion.`;
 
     const prediction = await withRetry(() =>
       replicate.predictions.create({
-        version: "4836eb257a4fb8b87bac9eacbef9292ee8e1a497398ab96207067403a4be2daf",
+        model: "black-forest-labs/flux-depth-pro",
         input: {
-          image: imageUrl,
+          control_image: imageUrl,
           prompt: renderPrompt,
-          negative_prompt: negativePrompt,
           num_outputs: 2,
-          num_inference_steps: 40,
-          guidance_scale: 10,
-          strength: 0.70,
+          num_inference_steps: 28,
+          guidance_scale: 15,
+          output_format: "jpg",
+          output_quality: 95,
+          prompt_upsampling: true,
         },
       })
     );
