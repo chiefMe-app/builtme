@@ -55,16 +55,24 @@ Keep all walls, windows, doors, floor, ceiling, structural elements exactly the 
     fal.config({ credentials: process.env.FAL_KEY });
 
     // Submit to FAL queue
-    const { request_id } = await fal.queue.submit("fal-ai/flux-kontext-pro", {
-      input: {
-        prompt: editPrompt,
-        image_url: imageUrl,
-        num_images: 2,
-        guidance_scale: 3.5,
-        num_inference_steps: 28,
-        output_format: "jpeg",
-      },
-    });
+    let request_id: string;
+    try {
+      const submission = await fal.queue.submit("fal-ai/flux-kontext-pro", {
+        input: {
+          prompt: editPrompt,
+          image_url: imageUrl,
+          num_images: 2,
+          guidance_scale: 3.5,
+          num_inference_steps: 28,
+          output_format: "jpeg",
+        },
+      });
+      request_id = submission.request_id;
+      console.log("FAL request submitted:", request_id);
+    } catch (falErr) {
+      console.error("FAL submit error:", falErr);
+      return NextResponse.json({ error: String(falErr) }, { status: 500 });
+    }
 
     return NextResponse.json({ predictionId: request_id, provider: "fal" });
   } catch (err) {
