@@ -39,11 +39,22 @@ function buildPrompt(
     typeInstruction = `Full renovation project. Include contractor matching as priority output.`;
   }
 
+  const userTypeInstructions: Record<string, string> = {
+    styling: "Focus ONLY on furniture, lighting, decor and accessories. Do NOT suggest structural changes, tiling, or plumbing. The user wants to restyle without construction.",
+    minor_reno: "Focus on the specific renovation items selected. For each item provide real vs budget-friendly alternative. Include accessories and finishing touches in furniture array.",
+    empty_flat: "This is an empty flat that needs full styling. Provide room-by-room furniture recommendations. Populate the spaceAnalysis.rooms array with each room and its furniture needs.",
+    full_reno: "This is a full renovation. Include structural scope, MEP considerations, and contractor requirements. Prioritize materials and contractor matching.",
+  };
+
+  const instruction = userTypeInstructions[userType] || "";
+
   return `You are BuiltMe AI. Generate a Dubai home renovation package as valid JSON ONLY. No markdown, no backticks, no explanation. Start with { and end with }.
 
 PROJECT: ${category}, ${budget}, Dubai UAE
 VISION: "${prompt || "Modern, clean and functional space"}"
 ${typeInstruction}
+
+USER TYPE SPECIFIC INSTRUCTIONS: ${instruction}
 
 Return ONLY this JSON, max 3 items per array:
 {"styleProfile":{"dominantStyle":"","colorPalette":[{"name":"","hex":"","usage":""}],"moodKeywords":["","",""],"designDirection":""},"designConcept":{"title":"","description":"","beforeAfterNarrative":""},"materials":[{"zone":"","item":"","specification":"","supplier":"","supplierArea":"","priceRange":"","quantity":"","totalCost":""}],"furniture":[{"item":"","brand":"","model":"","quantity":1,"priceAED":0,"totalPriceAED":0,"buyLink":"","imageSearchTerm":"","alternative":"","altPriceAED":0}],"costBreakdown":{"materials":0,"furniture":0,"labour":0,"contingency":0,"total":0,"currency":"AED"},"timeline":[{"week":"Week 1","tasks":["",""]}],"supplierMap":[{"name":"","category":"","area":"","website":""}],"nextSteps":["","",""]}`;

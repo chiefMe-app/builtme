@@ -239,6 +239,7 @@ export default function BuiltMe() {
   const [doneSteps, setDoneSteps] = useState<number[]>([]);
   const [results, setResults] = useState<BuiltMeResult | null>(null);
   const [activeTab, setActiveTab] = useState("concept");
+  const [savedUserType, setSavedUserType] = useState<string>("styling");
   const [furnitureBudget, setFurnitureBudget] = useState<"all" | "budget" | "mid" | "premium">("all");
   const [isLoading, setIsLoading] = useState(false);
   const [renders, setRenders] = useState<string[]>([]);
@@ -329,6 +330,53 @@ export default function BuiltMe() {
     }
   };
 
+  const getTabsForUserType = (type: string) => {
+    switch (type) {
+      case "styling":
+        return [
+          { id: "concept", label: "Design Concept" },
+          { id: "furniture", label: "Furniture & Shopping" },
+          { id: "suppliers", label: "Dubai Suppliers" },
+          { id: "renders", label: "AI Renders" },
+        ];
+      case "minor_reno":
+        return [
+          { id: "concept", label: "Design Concept" },
+          { id: "materials", label: "Materials & Cost" },
+          { id: "accessories", label: "Accessories" },
+          { id: "suppliers", label: "Dubai Suppliers" },
+          { id: "timeline", label: "Timeline" },
+          { id: "renders", label: "AI Renders" },
+        ];
+      case "empty_flat":
+        return [
+          { id: "concept", label: "Design Concept" },
+          { id: "roombyroom", label: "Room by Room" },
+          { id: "furniture", label: "Furniture & Shopping" },
+          { id: "suppliers", label: "Dubai Suppliers" },
+          { id: "renders", label: "AI Renders" },
+        ];
+      case "full_reno":
+        return [
+          { id: "concept", label: "Design Concept" },
+          { id: "materials", label: "Materials & Cost" },
+          { id: "contractors", label: "Contractors" },
+          { id: "suppliers", label: "Dubai Suppliers" },
+          { id: "timeline", label: "Timeline" },
+          { id: "renders", label: "AI Renders" },
+        ];
+      default:
+        return [
+          { id: "concept", label: "Design Concept" },
+          { id: "materials", label: "Materials & Cost" },
+          { id: "furniture", label: "Furniture" },
+          { id: "suppliers", label: "Dubai Suppliers" },
+          { id: "timeline", label: "Timeline" },
+          { id: "renders", label: "AI Renders" },
+        ];
+    }
+  };
+
   const getCategoryLabel = () => {
     if (userType === "styling") return "Room Restyling";
     if (userType === "minor_reno") {
@@ -366,6 +414,7 @@ export default function BuiltMe() {
     }
 
     setIsLoading(true);
+    setSavedUserType(userType || "styling");
     try {
       const categoryLabel = getCategoryLabel();
       const budgetLabel = BUDGET_OPTIONS.find((b) => b.id === budget)?.label ?? budget ?? "";
@@ -398,6 +447,7 @@ export default function BuiltMe() {
       if (data.error) throw new Error(data.error);
       const parsed = data.result as BuiltMeResult;
       setResults(parsed);
+      setActiveTab("concept");
       localStorage.setItem("builtme_results", JSON.stringify(parsed));
 
       try {
@@ -1285,15 +1335,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
 
           {/* Tabs */}
           <div style={{ borderBottom: "1px solid #EAE4D9", background: "#FFF", padding: "0 32px", display: "flex", gap: 4, overflowX: "auto" }}>
-            {[
-              { id: "concept", label: "Design Concept" },
-              { id: "materials", label: "Materials & Cost" },
-              { id: "furniture", label: "Furniture" },
-              { id: "contractors", label: "Contractors" },
-              { id: "suppliers", label: "Dubai Suppliers" },
-              { id: "timeline", label: "Timeline" },
-              { id: "renders", label: "AI Renders" },
-            ].map(t => (
+            {getTabsForUserType(savedUserType).map(t => (
               <button key={t.id} className={`tab ${activeTab === t.id ? "active" : ""}`} onClick={() => setActiveTab(t.id)}>
                 {t.label}
               </button>
@@ -1621,6 +1663,102 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* ACCESSORIES TAB */}
+            {activeTab === "accessories" && (
+              <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 8 }}>
+                  ACCESSORIES & FINISHING TOUCHES
+                </div>
+                {results?.furniture && results.furniture.length > 0 ? (
+                  results.furniture.map((item, i) => (
+                    <div key={i} className="card" style={{ display: "flex", gap: 16, alignItems: "flex-start", padding: 20 }}>
+                      <img
+                        src={getFurnitureImage(item.item)}
+                        alt={item.item}
+                        style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 4, flexShrink: 0 }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>{item.item}</div>
+                        <div style={{ fontSize: 13, color: "#888", fontWeight: 300, marginBottom: 8 }}>{item.brand} — {item.model}</div>
+                        <div style={{ fontSize: 12, color: "#AAA", marginBottom: 10 }}>Qty: {item.quantity || 1} × AED {(item.priceAED || 0).toLocaleString()} = <span style={{ color: "#C4A882", fontWeight: 600 }}>AED {((item.quantity || 1) * (item.priceAED || 0)).toLocaleString()}</span></div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {item.buyLink && item.buyLink.startsWith("http") && (
+                            <a href={item.buyLink} target="_blank" rel="noreferrer" style={{ padding: "6px 14px", background: "#1A1A1A", color: "#F7F4EF", textDecoration: "none", fontSize: 12, fontFamily: "'DM Sans', sans-serif", borderRadius: 2 }}>
+                              Buy now →
+                            </a>
+                          )}
+                          <a href={`https://www.noon.com/uae-en/search/?q=${encodeURIComponent(item.item)}`} target="_blank" rel="noreferrer" style={{ padding: "6px 14px", background: "#FFF", border: "1px solid #EAE4D9", color: "#666", textDecoration: "none", fontSize: 12, fontFamily: "'DM Sans', sans-serif", borderRadius: 2 }}>
+                            Noon
+                          </a>
+                          <a href={`https://www.amazon.ae/s?k=${encodeURIComponent(item.item)}`} target="_blank" rel="noreferrer" style={{ padding: "6px 14px", background: "#FFF", border: "1px solid #EAE4D9", color: "#666", textDecoration: "none", fontSize: 12, fontFamily: "'DM Sans', sans-serif", borderRadius: 2 }}>
+                            Amazon AE
+                          </a>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div className="serif" style={{ fontSize: 18, fontWeight: 600 }}>AED {(item.priceAED || 0).toLocaleString()}</div>
+                        <div style={{ fontSize: 11, color: "#AAA" }}>per unit</div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ textAlign: "center", padding: "40px 0", color: "#AAA" }}>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>🛒</div>
+                    <div>No accessories recommended for this project</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ROOM BY ROOM TAB */}
+            {activeTab === "roombyroom" && (
+              <div className="fade-in">
+                <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.2em", marginBottom: 20 }}>
+                  ROOM BY ROOM BREAKDOWN
+                </div>
+                {results?.spaceAnalysis?.rooms && results.spaceAnalysis.rooms.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {results.spaceAnalysis.rooms.map((room, i) => (
+                      <div key={i} className="card">
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                          <div className="serif" style={{ fontSize: 20, fontWeight: 400 }}>{room.room}</div>
+                          <span style={{ background: "#C4A88222", color: "#C4A882", fontSize: 11, padding: "4px 12px", borderRadius: 20, fontFamily: "monospace" }}>
+                            {room.observation}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 14, color: "#C4A882", marginBottom: 12, fontStyle: "italic" }}>
+                          → {room.opportunity}
+                        </div>
+                        {results?.materials
+                          ?.filter((m) => m.zone?.toLowerCase().includes(room.room?.toLowerCase().split(" ")[0]?.toLowerCase()))
+                          .map((m, j) => (
+                            <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #EAE4D9", fontSize: 13 }}>
+                              <span style={{ color: "#666" }}>{m.item}</span>
+                              <span style={{ color: "#C4A882", fontWeight: 500 }}>{m.totalCost}</span>
+                            </div>
+                          ))}
+                        <div style={{ marginTop: 12 }}>
+                          <a
+                            href={`https://www.noon.com/uae-en/search/?q=${encodeURIComponent(room.room + " furniture Dubai")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ fontSize: 12, color: "#C4A882", textDecoration: "none" }}
+                          >
+                            Shop {room.room} furniture on Noon →
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: "40px 0", color: "#AAA" }}>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>🏠</div>
+                    <div>Run analysis to see room by room breakdown</div>
+                  </div>
+                )}
               </div>
             )}
 
