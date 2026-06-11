@@ -342,9 +342,11 @@ export default function BuiltMe() {
   const [roomPhotoUrl, setRoomPhotoUrl] = useState<string>("");
   const [renderPromptExtra, setRenderPromptExtra] = useState("");
   const [user, setUser] = useState<User | null>(null);
+  const [savedRoomPhotos, setSavedRoomPhotos] = useState<File[]>([]);
+  const [selectedRenderPhoto, setSelectedRenderPhoto] = useState(0);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
-  const roomPhotoRef = useRef<HTMLInputElement>(null);
+  const renderPhotoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -404,25 +406,6 @@ export default function BuiltMe() {
   const handleReferences = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).slice(0, 5);
     setReferences(files);
-  };
-
-  const handleRoomPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setRoomPhoto(file);
-
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-      const res = await fetch("/api/upload-photo", { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.url) {
-        setRoomPhotoUrl(data.url);
-        localStorage.setItem("builtme_room_photo", data.url);
-      }
-    } catch (err) {
-      console.error("Photo upload error:", err);
-    }
   };
 
   const getTabsForUserType = (type: string) => {
@@ -510,6 +493,7 @@ export default function BuiltMe() {
 
     setIsLoading(true);
     setSavedUserType(userType || "styling");
+    setSavedRoomPhotos(roomPhotos);
     try {
       const categoryLabel = getCategoryLabel();
       const budgetLabel = BUDGET_OPTIONS.find((b) => b.id === budget)?.label ?? budget ?? "";
@@ -594,9 +578,9 @@ export default function BuiltMe() {
   };
 
   const generateRenders = async (updatedResults?: typeof results) => {
-    const photoToUse = roomPhoto || roomPhotos[0] || null;
+    const photoToUse = savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0] || roomPhoto || null;
     if (!photoToUse) {
-      alert("Please upload a photo of your room first");
+      alert("No room photo found. Please start a new project and upload photos.");
       return;
     }
     const activeResults = updatedResults || results;
@@ -2148,24 +2132,74 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                 )}
 
                 <div style={{ maxWidth: 400, margin: renders.length === 0 ? "0 auto 24px" : "0 0 28px" }}>
-                  <div
-                    style={{ border: "2px dashed #D4C9B8", borderRadius: 4, padding: 24, marginBottom: 16, cursor: "pointer", background: roomPhoto || roomPhotoUrl ? "#FAF8F5" : "#FFF" }}
-                    onClick={() => roomPhotoRef.current?.click()}
-                  >
-                    <input ref={roomPhotoRef} type="file" accept="image/*" onChange={handleRoomPhotoChange} style={{ display: "none" }} />
-                    {roomPhoto || roomPhotoUrl ? (
-                      <div>
-                        <img src={roomPhotoUrl || (roomPhoto ? URL.createObjectURL(roomPhoto) : "")} alt="Room" style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 4, marginBottom: 8 }} />
-                        <div style={{ fontSize: 12, color: "#AAA" }}>Click to change photo</div>
+                  {savedRoomPhotos.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.1em", marginBottom: 10 }}>
+                        YOUR ROOM PHOTOS — {savedRoomPhotos.length} uploaded
                       </div>
-                    ) : (
-                      <div>
-                        <div style={{ fontSize: 32, marginBottom: 8 }}>📷</div>
-                        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Upload your current room photo</div>
-                        <div style={{ fontSize: 12, color: "#AAA" }}>JPG, PNG — any angle</div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {savedRoomPhotos.map((photo, i) => (
+                          <div key={i} style={{ position: "relative" }}>
+                            <img
+                              src={URL.createObjectURL(photo)}
+                              alt={`Room photo ${i + 1}`}
+                              style={{
+                                width: 80, height: 80,
+                                objectFit: "cover",
+                                borderRadius: 4,
+                                border: selectedRenderPhoto === i ? "2px solid #C4A882" : "2px solid #EAE4D9",
+                                cursor: savedRoomPhotos.length > 1 ? "pointer" : "default",
+                              }}
+                              onClick={() => savedRoomPhotos.length > 1 && setSelectedRenderPhoto(i)}
+                            />
+                            {savedRoomPhotos.length > 1 && (
+                              <div style={{
+                                position: "absolute", bottom: 4, right: 4,
+                                background: selectedRenderPhoto === i ? "#C4A882" : "#00000066",
+                                borderRadius: "50%", width: 16, height: 16,
+                                display: "flex", alignItems: "center", justifyContent: "center"
+                              }}>
+                                <span style={{ color: "#FFF", fontSize: 9 }}>{i + 1}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    )}
-                  </div>
+                      {savedRoomPhotos.length > 1 && (
+                        <div style={{ fontSize: 12, color: "#AAA", marginTop: 8 }}>
+                          Tap a photo to select which angle to render
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {savedRoomPhotos.length === 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>
+                        No photos found for this project.
+                      </div>
+                      <div
+                        className="upload-zone"
+                        onClick={() => renderPhotoRef.current?.click()}
+                        style={{ padding: "16px", textAlign: "center", cursor: "pointer" }}
+                      >
+                        <input
+                          ref={renderPhotoRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setSavedRoomPhotos([file]);
+                              setSelectedRenderPhoto(0);
+                            }
+                          }}
+                          style={{ display: "none" }}
+                        />
+                        <div style={{ fontSize: 13, color: "#AAA" }}>Upload a room photo to generate render</div>
+                      </div>
+                    </div>
+                  )}
 
                   <input
                     className="input-field"
@@ -2179,7 +2213,7 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                     <button
                       className="btn-primary"
                       onClick={() => generateRenders()}
-                      disabled={renderLoading || !roomPhoto}
+                      disabled={renderLoading || (savedRoomPhotos.length === 0 && !roomPhoto)}
                       style={{ fontSize: 14, padding: "14px 36px" }}
                     >
                       {renderLoading ? "Generating renders..." : renders.length === 0 ? "Generate renders →" : "Regenerate renders"}
@@ -2203,8 +2237,8 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
                       {/* BEFORE */}
                       <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                        {(roomPhotoUrl || roomPhoto) && (
-                          <img src={roomPhotoUrl || (roomPhoto ? URL.createObjectURL(roomPhoto) : "")} alt="Before" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
+                        {(savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0] || roomPhotoUrl || roomPhoto) && (
+                          <img src={savedRoomPhotos[selectedRenderPhoto] ? URL.createObjectURL(savedRoomPhotos[selectedRenderPhoto]) : savedRoomPhotos[0] ? URL.createObjectURL(savedRoomPhotos[0]) : roomPhotoUrl || (roomPhoto ? URL.createObjectURL(roomPhoto) : "")} alt="Before" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
                         )}
                         <div style={{ padding: "12px 16px", background: "#FFF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
