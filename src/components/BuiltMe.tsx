@@ -345,6 +345,7 @@ export default function BuiltMe() {
   const [user, setUser] = useState<User | null>(null);
   const [savedRoomPhotos, setSavedRoomPhotos] = useState<File[]>([]);
   const [selectedRenderPhoto, setSelectedRenderPhoto] = useState(0);
+  const [savedProjectId, setSavedProjectId] = useState<string | null>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -376,6 +377,7 @@ export default function BuiltMe() {
     setBudget(null);
     setPrompt("");
     setReferences([]);
+    setSavedProjectId(null);
     setScreen("configure");
   };
 
@@ -534,17 +536,23 @@ export default function BuiltMe() {
       localStorage.setItem("builtme_results", JSON.stringify(parsed));
 
       try {
-        await supabase.from("builtme_projects").insert({
-          user_id: user?.id,
-          category: categoryLabel,
-          budget: budgetLabel,
-          prompt,
-          result: parsed,
-          title: parsed?.designConcept?.projectTitle,
-          renders: [],
-          room_photo_url: roomPhotoUrl,
-          created_at: new Date().toISOString(),
-        });
+        const { data: newProject } = await supabase
+          .from("builtme_projects")
+          .insert({
+            user_id: user?.id,
+            category: categoryLabel,
+            budget: budgetLabel,
+            prompt,
+            result: parsed,
+            title: parsed?.designConcept?.projectTitle || "My Project",
+            renders: [],
+            room_photo_url: roomPhotoUrl,
+            created_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+
+        if (newProject) setSavedProjectId(newProject.id);
       } catch (dbErr) {
         console.error("Failed to save project:", dbErr);
       }
@@ -657,19 +665,11 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
           localStorage.setItem("builtme_renders", JSON.stringify(permanentUrls));
 
           try {
-            const { data: latestProject } = await supabase
-              .from("builtme_projects")
-              .select("id")
-              .eq("user_id", user?.id)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .single();
-
-            if (latestProject) {
+            if (savedProjectId) {
               await supabase
                 .from("builtme_projects")
                 .update({ renders: permanentUrls })
-                .eq("id", latestProject.id);
+                .eq("id", savedProjectId);
             }
           } catch (dbErr) {
             console.error("Failed to update project renders:", dbErr);
@@ -713,20 +713,10 @@ ${renderPromptExtra ? "Additional instructions: " + renderPromptExtra : ""}`;
       setResults(data.result);
 
       // Save updated result to Supabase
-      if (user) {
-        const { data: latestProject } = await supabase
-          .from("builtme_projects")
-          .select("id")
-          .eq("user_id", user?.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single();
-
-        if (latestProject) {
-          await supabase.from("builtme_projects")
-            .update({ result: data.result })
-            .eq("id", latestProject.id);
-        }
+      if (savedProjectId) {
+        await supabase.from("builtme_projects")
+          .update({ result: data.result })
+          .eq("id", savedProjectId);
       }
 
       // Regenerate render with new analysis

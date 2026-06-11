@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { createClient } from "@supabase/supabase-js";
 
 export const maxDuration = 300;
 
@@ -91,7 +90,6 @@ export async function POST(request: NextRequest) {
     const locationArea = String(formData.get("locationArea") ?? "") || "Dubai";
     const propertyType = String(formData.get("propertyType") ?? "") || "apartment";
     const propertySize = String(formData.get("propertySize") ?? "");
-    const userId = formData.get("userId") ? String(formData.get("userId")) : null;
 
     const floorPlan = formData.get("floorPlan");
     const referenceImages = formData
@@ -183,31 +181,6 @@ export async function POST(request: NextRequest) {
         { error: "Failed to parse Claude response as JSON", raw: textBlock.text },
         { status: 502 },
       );
-    }
-
-    // Run once in the Supabase SQL editor to support user-owned projects:
-    // ALTER TABLE builtme_projects ADD COLUMN user_id uuid references auth.users;
-    // ALTER TABLE builtme_projects ADD COLUMN title text;
-    // ALTER TABLE builtme_projects ADD COLUMN renders jsonb;
-    // ALTER TABLE builtme_projects ADD COLUMN IF NOT EXISTS room_photo_url text;
-    try {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
-      await supabase.from("builtme_projects").insert({
-        user_id: userId,
-        category,
-        budget,
-        prompt,
-        result,
-        title: (result as { designConcept?: { projectTitle?: string } })?.designConcept?.projectTitle,
-        renders: [],
-        created_at: new Date().toISOString(),
-      });
-    } catch (dbErr) {
-      console.error("DB save error:", dbErr);
-      // Don't fail the request if DB save fails
     }
 
     return NextResponse.json({ result });
