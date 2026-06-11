@@ -12,83 +12,58 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
-    const productsPrompt = (formData.get("productsPrompt") as string) || "";
-    const renderPromptExtra = (formData.get("renderPromptExtra") as string) || "";
-    const whatToChangeRaw = formData.get("whatToChange") as string | null;
-    const whatToChange: string[] = whatToChangeRaw ? JSON.parse(whatToChangeRaw) : [];
+    const prompt = formData.get("prompt") as string;
+    const inputImageUrl = formData.get("imageUrl") as string | null;
     const imageFile = formData.get("image") as File | null;
 
-    if (!imageFile || imageFile.size === 0) {
-      return NextResponse.json({ error: "Please upload a photo of your room" }, { status: 400 });
+    if (!prompt) {
+      return NextResponse.json({ error: "No edit instruction provided" }, { status: 400 });
     }
 
-    // Upload image to Supabase Storage first
-    const arrayBuffer = await imageFile.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const fileName = `render-input-${Date.now()}.jpg`;
+    let imageUrl = inputImageUrl;
 
-    const { error: uploadError } = await supabase.storage
-      .from("builtme-uploads")
-      .upload(fileName, buffer, {
-        contentType: imageFile.type || "image/jpeg",
-        upsert: true,
-      });
+    // No previous render URL — upload the room photo to Supabase Storage
+    if (!imageUrl) {
+      if (!imageFile || imageFile.size === 0) {
+        return NextResponse.json({ error: "Please upload a photo of your room" }, { status: 400 });
+      }
 
-    if (uploadError) {
-      return NextResponse.json({ error: `Upload failed: ${uploadError.message}` }, { status: 500 });
+      const arrayBuffer = await imageFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const fileName = `render-input-${Date.now()}.jpg`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("builtme-uploads")
+        .upload(fileName, buffer, {
+          contentType: imageFile.type || "image/jpeg",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        return NextResponse.json({ error: `Upload failed: ${uploadError.message}` }, { status: 500 });
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("builtme-uploads")
+        .getPublicUrl(fileName);
+
+      imageUrl = urlData.publicUrl;
     }
-
-    const { data: urlData } = supabase.storage
-      .from("builtme-uploads")
-      .getPublicUrl(fileName);
-
-    const imageUrl = urlData.publicUrl;
-
-    const changeLabels: Record<string, string> = {
-      sofa: "sofa and seating",
-      dining: "dining table and chairs",
-      lighting: "lighting fixtures",
-      wall_colour: "wall colour",
-      rug: "rugs",
-      curtains: "curtains",
-      coffee_table: "coffee table",
-      tv_unit: "TV unit",
-      decor: "decorative accessories",
-    };
-
-    const changingItems = (whatToChange || []).map((id: string) => changeLabels[id]).filter(Boolean);
-
-    const editPrompt = `This is a precise furniture replacement task.
-
-REPLACE these exact items with new versions, keeping them in the SAME position:
-${changingItems.join(", ") || "the sofa"}.
-
-${productsPrompt}
-
-ABSOLUTE RULES - violating these ruins the result:
-1. Do NOT change the room layout or furniture positions
-2. If there is a dining table, it STAYS a dining table in the same spot
-3. If there is a sofa, the new sofa goes in the EXACT same position
-4. Do NOT close, open, or modify any doorway, window, or wall opening
-5. Do NOT change the kitchen or anything visible through doorways
-6. Keep floor, ceiling, walls, and all architecture identical
-7. Same camera angle, same perspective, same lighting
-
-Only swap the furniture STYLE, never the furniture TYPE or POSITION.
-${renderPromptExtra || ""}`.trim();
 
     // Configure FAL client
     fal.config({ credentials: process.env.FAL_KEY });
 
-    // Submit to FAL queue
+    // Submit one surgical edit to FAL queue.
+    // Kontext works best with a single short edit instruction at default guidance —
+    // multi-item edits are chained client-side, one call per item.
     let request_id: string;
     try {
       const submission = await fal.queue.submit("fal-ai/flux-pro/kontext/max", {
         input: {
-          prompt: editPrompt,
+          prompt,
           image_url: imageUrl,
-          num_images: 2,
-          guidance_scale: 7,
+          num_images: 1,
+          guidance_scale: 3.5,
           output_format: "jpeg",
         },
       });

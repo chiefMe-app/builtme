@@ -614,46 +614,6 @@ export default function BuiltMe() {
     setScreen("results");
   };
 
-  const buildChangeInstruction = () => {
-    const changeLabels: Record<string, string> = {
-      sofa: "sofa and seating",
-      dining: "dining table and chairs",
-      lighting: "lighting fixtures and pendants",
-      wall_colour: "wall paint colour",
-      wallpaper: "wall texture or wallpaper",
-      rug: "rug",
-      curtains: "curtains and window treatments",
-      coffee_table: "coffee table",
-      tv_unit: "TV unit and media console",
-      decor: "decorative accessories and plants",
-      layout: "furniture arrangement and layout",
-      existing_only: "rearrange existing furniture only, do not add new items",
-    };
-
-    if (whatToChange.length > 0) {
-      const changes = whatToChange.map(id => changeLabels[id]).filter(Boolean);
-      const keepSame = whatToChange.includes("existing_only")
-        ? "Do not add any new furniture. Only rearrange what is already there."
-        : "Keep everything else EXACTLY the same — walls, floor, ceiling, windows, and any furniture NOT in the change list.";
-      return `ONLY change: ${changes.join(", ")}. ${keepSame}`;
-    }
-
-    // Fall back to user type selections
-    if (savedUserType === "minor_reno" && selectedMinorItems.length > 0) {
-      const changeMap: Record<string, string> = {
-        countertop_replace: "countertop", countertop_wrap: "countertop surface",
-        cabinet_repaint: "cabinet colour", cabinet_wrap: "cabinet doors",
-        backsplash_tile: "backsplash", backsplash_sticker: "backsplash",
-        floor_real: "floor tiles", floor_sticker: "floor",
-        lighting: "lighting", handles: "handles and taps",
-      };
-      const changes = selectedMinorItems.map(id => changeMap[id]).filter(Boolean);
-      return `ONLY change: ${changes.join(", ")}. Keep everything else exactly the same.`;
-    }
-
-    return "Keep walls, floor, ceiling, and structural elements exactly the same.";
-  };
-
   const extractProductsFromReferences = async () => {
     if (savedReferencePhotos.length === 0) return;
     setExtractingProducts(true);
@@ -686,6 +646,28 @@ export default function BuiltMe() {
     setExtractingProducts(false);
   };
 
+  // Submit one surgical Kontext edit and poll until it finishes. Returns the result image URL.
+  const runEditStep = async (stepPrompt: string, photo: File | null, inputUrl: string | null): Promise<string | null> => {
+    const formData = new FormData();
+    if (inputUrl) formData.append("imageUrl", inputUrl);
+    else if (photo) formData.append("image", photo);
+    formData.append("prompt", stepPrompt);
+
+    const renderRes = await fetch("/api/render", { method: "POST", body: formData });
+    const renderData = await renderRes.json();
+    if (renderData.error || !renderData.predictionId) return null;
+
+    const provider = renderData.provider || "fal";
+    for (let attempts = 0; attempts < 60; attempts++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const statusRes = await fetch(`/api/render-status?id=${renderData.predictionId}&provider=${provider}`);
+      const statusData = await statusRes.json();
+      if (statusData.status === "succeeded" && statusData.images?.length > 0) return statusData.images[0];
+      if (statusData.status === "failed") return null;
+    }
+    return null;
+  };
+
   const generateRenders = async () => {
     if (savedRoomPhotos.length === 0) {
       alert("No room photos found.");
@@ -695,72 +677,84 @@ export default function BuiltMe() {
     setRenders([]);
     setAllRenders([]);
 
-    const productsPrompt = selectedProducts.length > 0
-      ? "Replace with these specific items: " + selectedProducts.map(key => {
-          const [itemName] = key.split("__");
-          const product = extractedProducts.find(p => p.itemName === itemName);
-          return product?.renderDescription || itemName;
-        }).join(", ") + "."
-      : "";
+    const KEEP_SAME =
+      "in the exact same position, scale and orientation. Keep everything else in the image exactly the same — same camera angle, same framing, same lighting, same floor, walls and ceiling.";
 
-    const changeInstruction = buildChangeInstruction();
-    const fullPrompt = `${prompt || ""}. ${productsPrompt} ${changeInstruction} ${renderPromptExtra || ""}`.trim();
+    // One surgical edit instruction per selected product — Kontext follows
+    // single short edits far more strictly than one big multi-item prompt.
+    const editSteps: string[] = [];
+    const productCategories: string[] = [];
+    selectedProducts.forEach(key => {
+      const [itemName] = key.split("__");
+      const product = extractedProducts.find(p => p.itemName === itemName);
+      const desc = product?.renderDescription || itemName;
+      const category = product?.category || itemName;
+      productCategories.push(category.toLowerCase());
+      editSteps.push(`Replace the existing ${category} with ${desc}, ${KEEP_SAME}`);
+    });
 
-    // Generate render for each uploaded photo (max 4)
+    // "What to change" selections not already covered by a product get their own step
+    const changeStepLabels: Record<string, string> = {
+      sofa: "sofa",
+      dining: "dining table and chairs",
+      lighting: "lighting fixtures",
+      wall_colour: "wall paint colour",
+      wallpaper: "wall texture",
+      rug: "rug",
+      curtains: "curtains",
+      coffee_table: "coffee table",
+      tv_unit: "TV unit",
+      decor: "decorative accessories",
+    };
+    whatToChange.forEach(id => {
+      const label = changeStepLabels[id];
+      if (!label) return;
+      const covered = productCategories.some(cat => cat.includes(label.split(" ")[0]) || label.includes(cat.split(" ")[0] || ""));
+      if (covered) return;
+      editSteps.push(`Update the ${label} to match a ${results?.styleProfile?.dominantStyle || "modern"} style, ${KEEP_SAME}`);
+    });
+
+    if (renderPromptExtra.trim()) {
+      editSteps.push(`${renderPromptExtra.trim()}. Keep everything else in the image exactly the same — same camera angle, same framing, same lighting.`);
+    }
+
+    // Nothing selected at all — fall back to one generic restyle pass
+    if (editSteps.length === 0) {
+      editSteps.push(`Restyle the furniture and decor in a ${results?.styleProfile?.dominantStyle || "modern"} style, ${KEEP_SAME}`);
+    }
+
+    // Generate render for each uploaded photo (max 4), chaining edits sequentially:
+    // the output of each edit is the input of the next.
     const photosToRender = savedRoomPhotos.slice(0, 4);
     const collected: { photoIndex: number; url: string }[] = [];
 
     for (let i = 0; i < photosToRender.length; i++) {
       try {
-        const formData = new FormData();
-        formData.append("image", photosToRender[i]);
-        formData.append("prompt", fullPrompt);
-        formData.append("whatToChange", JSON.stringify(whatToChange));
-        formData.append("productsPrompt", productsPrompt);
-        formData.append("renderPromptExtra", renderPromptExtra || "");
-        formData.append("style", results?.styleProfile?.dominantStyle || "");
-        formData.append("room", results?.spaceAnalysis?.roomType || getCategoryLabel() || "living room");
-        formData.append("colorPalette", results?.styleProfile?.colorPalette?.map((c: { name: string }) => c.name).join(", ") || "");
+        let currentUrl: string | null = null;
+        for (const step of editSteps) {
+          const resultUrl = await runEditStep(step, currentUrl ? null : photosToRender[i], currentUrl);
+          if (resultUrl) currentUrl = resultUrl;
+          // If a step fails, keep the last successful intermediate result
+        }
+        if (!currentUrl) continue;
 
-        const renderRes = await fetch("/api/render", { method: "POST", body: formData });
-        const renderData = await renderRes.json();
-        if (renderData.error) continue;
+        // Save final chained result to Supabase Storage
+        try {
+          const saveRes = await fetch("/api/save-render", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: currentUrl }),
+          });
+          const saveData = await saveRes.json();
+          const permanentUrl = saveData.permanentUrl || currentUrl;
 
-        const predictionId = renderData.predictionId;
-        const provider = renderData.provider || "fal";
-
-        // Poll for this prediction
-        let attempts = 0;
-        while (attempts < 60) {
-          await new Promise(r => setTimeout(r, 3000));
-          const statusRes = await fetch(`/api/render-status?id=${predictionId}&provider=${provider}`);
-          const statusData = await statusRes.json();
-
-          if (statusData.status === "succeeded" && statusData.images?.length > 0) {
-            const imgUrl = statusData.images[0];
-
-            // Save to Supabase Storage
-            try {
-              const saveRes = await fetch("/api/save-render", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url: imgUrl }),
-              });
-              const saveData = await saveRes.json();
-              const permanentUrl = saveData.permanentUrl || imgUrl;
-
-              collected.push({ photoIndex: i, url: permanentUrl });
-              setAllRenders([...collected]);
-              // Also keep renders array updated with first render
-              if (i === 0) setRenders([permanentUrl]);
-            } catch {
-              collected.push({ photoIndex: i, url: imgUrl });
-              setAllRenders([...collected]);
-            }
-            break;
-          }
-          if (statusData.status === "failed") break;
-          attempts++;
+          collected.push({ photoIndex: i, url: permanentUrl });
+          setAllRenders([...collected]);
+          // Also keep renders array updated with first render
+          if (i === 0) setRenders([permanentUrl]);
+        } catch {
+          collected.push({ photoIndex: i, url: currentUrl });
+          setAllRenders([...collected]);
         }
       } catch (err) {
         console.error(`Render ${i} failed:`, err);
