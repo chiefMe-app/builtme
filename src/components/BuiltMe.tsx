@@ -112,6 +112,30 @@ interface ObjectBbox {
   height: number;
 }
 
+interface SelectedReplacementProduct {
+  category?: string;
+  itemName?: string;
+  renderDescription?: string;
+  name?: string;
+  brand?: string;
+  price?: string;
+  tier?: string;
+  imageUrl?: string;
+  productUrl?: string;
+}
+
+interface RenderHistoryEntry {
+  id: string;
+  createdAt: string;
+  mode: "restyle" | "strict_replace";
+  beforeImage: string;
+  afterImage: string;
+  angleLabel?: string;
+  selectedCategory?: string;
+  selectedProduct?: SelectedReplacementProduct | null;
+  promptExtra?: string;
+}
+
 interface ExtractedProduct {
   category: string;
   itemName: string;
@@ -385,7 +409,8 @@ export default function BuiltMe() {
   const [strictImageUrl, setStrictImageUrl] = useState<string | null>(null);
   const [strictImageDims, setStrictImageDims] = useState<{ w: number; h: number } | null>(null);
   const [strictValidationMsg, setStrictValidationMsg] = useState<string | null>(null);
-  const [strictResultInfo, setStrictResultInfo] = useState<{ category: string | null; productName: string | null; brand?: string; price?: string } | null>(null);
+  const [renderHistory, setRenderHistory] = useState<RenderHistoryEntry[]>([]);
+  const [activeRenderId, setActiveRenderId] = useState<string | null>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -768,6 +793,50 @@ export default function BuiltMe() {
     }
   };
 
+  // Resolve the currently selected replacement product (strict mode MVP = one)
+  // into displayable details, with a safe fallback image
+  const getSelectedReplacementProduct = (): SelectedReplacementProduct | null => {
+    if (!selectedProducts?.length || !extractedProducts?.length) return null;
+
+    const key = selectedProducts[0];
+    const [itemName, optionName] = key.split("__");
+    const product = extractedProducts.find(p => p.itemName === itemName);
+    const option = product?.options?.find(o => o.name === optionName);
+
+    if (!product || !option) return null;
+
+    const validImage = isValidProductImageUrl({
+      imageUrl: option.imageUrl,
+      productName: option.name,
+      category: product.category,
+      brand: option.brand,
+    });
+
+    return {
+      category: product.category,
+      itemName: product.itemName,
+      renderDescription: product.renderDescription,
+      name: option.name,
+      brand: option.brand,
+      price: option.price,
+      tier: option.tier,
+      imageUrl: validImage ? option.imageUrl : getFurnitureImage(product.category || product.itemName),
+      productUrl: option.productUrl || "",
+    };
+  };
+
+  // Append a completed render to the version history and make it active.
+  // Regenerating must never erase previous renders.
+  const appendRenderToHistory = (entry: Omit<RenderHistoryEntry, "id" | "createdAt">) => {
+    const newEntry: RenderHistoryEntry = {
+      ...entry,
+      id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setRenderHistory(prev => [...prev, newEntry]);
+    setActiveRenderId(newEntry.id);
+  };
+
   // Strict mode: one selected object, one selected product, mask-only inpainting,
   // final image composited from the original outside the mask (server-side)
   const generateStrictRender = async () => {
@@ -804,7 +873,6 @@ export default function BuiltMe() {
     setRenderLoading(true);
     setRenders([]);
     setAllRenders([]);
-    setStrictResultInfo(null);
 
     const [itemName, optionName] = strictKey.split("__");
     const product = extractedProducts.find(p => p.itemName === itemName);
@@ -849,11 +917,14 @@ export default function BuiltMe() {
         const url = result.images[0];
         setAllRenders([{ photoIndex: selectedRenderPhoto, url }]);
         setRenders([url]);
-        setStrictResultInfo({
-          category: result.category || selectedObjectCategory,
-          productName: result.productName || option?.name || itemName,
-          brand: option?.brand,
-          price: option?.price,
+        appendRenderToHistory({
+          mode: "strict_replace",
+          beforeImage: strictImageUrl,
+          afterImage: url,
+          angleLabel: `Angle ${selectedRenderPhoto + 1}`,
+          selectedCategory: result.category || selectedObjectCategory || undefined,
+          selectedProduct: getSelectedReplacementProduct(),
+          promptExtra: renderPromptExtra || "",
         });
         localStorage.setItem("builtme_renders", JSON.stringify([url]));
         if (savedProjectId) {
@@ -984,11 +1055,27 @@ Placement rule: ${p.placementRule}`
 
           collected.push({ photoIndex: i, url: permanentUrl });
           setAllRenders([...collected]);
+          appendRenderToHistory({
+            mode: "restyle",
+            beforeImage: URL.createObjectURL(photosToRender[i]),
+            afterImage: permanentUrl,
+            angleLabel: `Angle ${i + 1}`,
+            selectedProduct: getSelectedReplacementProduct(),
+            promptExtra: renderPromptExtra || "",
+          });
           // Also keep renders array updated with first render
           if (i === 0) setRenders([permanentUrl]);
         } catch {
           collected.push({ photoIndex: i, url: currentUrl });
           setAllRenders([...collected]);
+          appendRenderToHistory({
+            mode: "restyle",
+            beforeImage: URL.createObjectURL(photosToRender[i]),
+            afterImage: currentUrl,
+            angleLabel: `Angle ${i + 1}`,
+            selectedProduct: getSelectedReplacementProduct(),
+            promptExtra: renderPromptExtra || "",
+          });
         }
       } catch (err) {
         console.error(`Render ${i} failed:`, err);
@@ -2954,6 +3041,39 @@ Placement rule: ${p.placementRule}`
                             </div>
                           </div>
                         )}
+
+                        {/* Selected replacement preview card */}
+                        {(() => {
+                          const sel = getSelectedReplacementProduct();
+                          if (!sel) return null;
+                          return (
+                            <div style={{ marginTop: 14, background: "#FFF", border: "1px solid #EAE4D9", borderRadius: 4, padding: 14 }}>
+                              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                                SELECTED REPLACEMENT
+                              </div>
+                              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                                <img
+                                  src={sel.imageUrl}
+                                  alt={sel.name || "Selected product"}
+                                  onError={(e) => { e.currentTarget.src = getFurnitureImage(sel.category || sel.itemName || "decor"); }}
+                                  style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 4, flexShrink: 0, background: "#F7F3EC" }}
+                                />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{sel.name}</div>
+                                  <div style={{ fontSize: 11, color: "#888" }}>
+                                    {sel.category}{sel.brand ? ` · ${sel.brand}` : ""}{sel.tier ? ` · ${sel.tier}` : ""}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>AED {sel.price}</div>
+                                </div>
+                                {isValidProductUrl(sel.productUrl) && (
+                                  <a href={sel.productUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none", flexShrink: 0 }}>
+                                    View product →
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 
@@ -3025,62 +3145,122 @@ Placement rule: ${p.placementRule}`
                       </div>
                     )}
 
-                    {/* Strict replacement result info */}
-                    {renderMode === "strict_replace" && strictResultInfo && allRenders.length > 0 && (
-                      <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
-                        <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 6 }}>
-                          STRICT REPLACEMENT: ONLY SELECTED OBJECT EDITED
-                        </div>
-                        <div style={{ fontSize: 12, color: "#7A6A55" }}>
-                          {strictResultInfo.category && strictResultInfo.category !== "unknown" ? `${strictResultInfo.category.replace(/_/g, " ")} → ` : ""}
-                          {strictResultInfo.productName}
-                          {strictResultInfo.brand ? ` · ${strictResultInfo.brand}` : ""}
-                          {strictResultInfo.price ? ` · AED ${strictResultInfo.price}` : ""}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#AAA", marginTop: 4 }}>
-                          Precision mode preserves the original room outside the selected object.
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Before/After — all angles */}
-                    {allRenders.length > 0 && (
-                      <div className="fade-in">
-                        <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
-                          BEFORE → AFTER — {allRenders.length} angle{allRenders.length > 1 ? "s" : ""}
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                          {allRenders.map((render, i) => (
-                            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                              {/* Before */}
-                              <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                                <img
-                                  src={URL.createObjectURL(savedRoomPhotos[render.photoIndex])}
-                                  alt="Before"
-                                  style={{ width: "100%", height: 240, objectFit: "cover", display: "block" }}
-                                />
-                                <div style={{ padding: "8px 14px", display: "flex", justifyContent: "space-between", background: "#FFF" }}>
-                                  <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
-                                  <span style={{ fontSize: 11, color: "#999" }}>Angle {render.photoIndex + 1}</span>
-                                </div>
+                    {/* Active render + version history */}
+                    {renderHistory.length > 0 && (() => {
+                      const activeRender = renderHistory.find(e => e.id === activeRenderId) || renderHistory[renderHistory.length - 1];
+                      return (
+                        <div className="fade-in">
+                          {/* Per-version result summary */}
+                          {activeRender.mode === "strict_replace" && (
+                            <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
+                              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 6 }}>
+                                STRICT REPLACEMENT: ONLY SELECTED OBJECT EDITED
                               </div>
-                              {/* After */}
-                              <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
-                                <img
-                                  src={render.url}
-                                  alt="After"
-                                  style={{ width: "100%", height: 240, objectFit: "cover", display: "block" }}
-                                />
-                                <div style={{ padding: "8px 14px", display: "flex", justifyContent: "space-between", background: "#FFF" }}>
-                                  <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
-                                  <a href={render.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
+                              <div style={{ fontSize: 12, color: "#7A6A55" }}>
+                                {activeRender.selectedCategory && activeRender.selectedCategory !== "unknown" ? `${activeRender.selectedCategory.replace(/_/g, " ")} → ` : ""}
+                                {activeRender.selectedProduct?.name}
+                                {activeRender.selectedProduct?.brand ? ` · ${activeRender.selectedProduct.brand}` : ""}
+                                {activeRender.selectedProduct?.price ? ` · AED ${activeRender.selectedProduct.price}` : ""}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#AAA", marginTop: 4 }}>
+                                Precision mode preserves the original room outside the selected object.
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Applied product card for the active version */}
+                          {activeRender.selectedProduct?.name && (
+                            <div style={{ marginBottom: 16, padding: "10px 14px", background: "#FFF", border: "1px solid #EAE4D9", borderRadius: 4, display: "flex", gap: 10, alignItems: "center" }}>
+                              <img
+                                src={activeRender.selectedProduct.imageUrl}
+                                alt={activeRender.selectedProduct.name}
+                                onError={(e) => { e.currentTarget.src = getFurnitureImage(activeRender.selectedProduct?.category || "decor"); }}
+                                style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, flexShrink: 0, background: "#F7F3EC" }}
+                              />
+                              <div>
+                                <div className="mono" style={{ fontSize: 9, color: "#C4A882", letterSpacing: "0.1em" }}>APPLIED PRODUCT</div>
+                                <div style={{ fontSize: 12, color: "#555" }}>
+                                  {activeRender.selectedProduct.name}
+                                  {activeRender.selectedProduct.brand ? ` · ${activeRender.selectedProduct.brand}` : ""}
+                                  {activeRender.selectedProduct.price ? ` · AED ${activeRender.selectedProduct.price}` : ""}
                                 </div>
                               </div>
                             </div>
-                          ))}
+                          )}
+
+                          {/* Before/After for the active version */}
+                          <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
+                            BEFORE → AFTER — VERSION {renderHistory.findIndex(e => e.id === activeRender.id) + 1}{activeRender.angleLabel ? ` · ${activeRender.angleLabel.toUpperCase()}` : ""}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                            <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                              <img
+                                src={activeRender.beforeImage}
+                                alt="Before"
+                                style={{ width: "100%", height: 240, objectFit: "cover", display: "block" }}
+                              />
+                              <div style={{ padding: "8px 14px", display: "flex", justifyContent: "space-between", background: "#FFF" }}>
+                                <span className="mono" style={{ fontSize: 10, color: "#AAA" }}>BEFORE</span>
+                                <span style={{ fontSize: 11, color: "#999" }}>{activeRender.angleLabel || "Current space"}</span>
+                              </div>
+                            </div>
+                            <div style={{ overflow: "hidden", borderRadius: 4, border: "1px solid #EAE4D9" }}>
+                              <img
+                                src={activeRender.afterImage}
+                                alt="After"
+                                style={{ width: "100%", height: 240, objectFit: "cover", display: "block" }}
+                              />
+                              <div style={{ padding: "8px 14px", display: "flex", justifyContent: "space-between", background: "#FFF" }}>
+                                <span className="mono" style={{ fontSize: 10, color: "#C4A882" }}>AFTER</span>
+                                <a href={activeRender.afterImage} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none" }}>View full →</a>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Render versions */}
+                          {renderHistory.length > 1 && (
+                            <div style={{ marginBottom: 20 }}>
+                              <div className="mono" style={{ fontSize: 10, color: "#AAA", letterSpacing: "0.15em", marginBottom: 10 }}>
+                                RENDER VERSIONS — {renderHistory.length}
+                              </div>
+                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                                {renderHistory.map((entry, idx) => {
+                                  const isActive = entry.id === activeRender.id;
+                                  return (
+                                    <div
+                                      key={entry.id}
+                                      onClick={() => setActiveRenderId(entry.id)}
+                                      style={{
+                                        width: 150, cursor: "pointer", borderRadius: 4, overflow: "hidden",
+                                        border: `2px solid ${isActive ? "#C4A882" : "#EAE4D9"}`,
+                                        background: isActive ? "#FBF8F4" : "#FFF",
+                                        transition: "all 0.2s",
+                                      }}
+                                    >
+                                      <img src={entry.afterImage} alt={`Version ${idx + 1}`} style={{ width: "100%", height: 84, objectFit: "cover", display: "block" }} />
+                                      <div style={{ padding: "8px 10px" }}>
+                                        <div style={{ fontSize: 11, fontWeight: 500, color: "#555" }}>
+                                          Version {idx + 1}{isActive ? " · current" : ""}
+                                        </div>
+                                        <div style={{ fontSize: 10, color: "#999", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                          {entry.selectedProduct?.name || (entry.mode === "strict_replace" ? "Strict replacement" : "Restyle")}
+                                        </div>
+                                        <div style={{ fontSize: 9, color: "#BBB", marginTop: 2 }}>
+                                          {entry.angleLabel || ""} {new Date(entry.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                        </div>
+                                        {!isActive && (
+                                          <div style={{ fontSize: 10, color: "#C4A882", marginTop: 4 }}>View this version →</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
               </div>
