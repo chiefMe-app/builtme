@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { isValidProductImageUrl, isValidProductUrl } from "@/lib/validateProductImage";
 import { isBboxTooSmallForCategory } from "@/lib/expandFurnitureBbox";
+import { normalizeFurnitureCategory, getCategoryPlacementRule } from "@/lib/normalizeFurnitureCategory";
+import { validateRestyleRenderMetadata } from "@/lib/renderValidation";
 import type { User } from "@supabase/supabase-js";
 
 interface ColorSwatch {
@@ -869,12 +871,13 @@ export default function BuiltMe() {
     }
   };
 
-  // Submit one surgical Kontext edit and poll until it finishes. Returns the result image URL.
-  const runEditStep = async (stepPrompt: string, photo: File | null, inputUrl: string | null): Promise<string | null> => {
+  // Submit one guided restyle render (structured category mappings) and poll
+  // until it finishes. Returns the result image URL.
+  const runRestyleRender = async (photo: File, productsPrompt: string): Promise<string | null> => {
     const formData = new FormData();
-    if (inputUrl) formData.append("imageUrl", inputUrl);
-    else if (photo) formData.append("image", photo);
-    formData.append("prompt", stepPrompt);
+    formData.append("image", photo);
+    formData.append("productsPrompt", productsPrompt);
+    formData.append("renderPromptExtra", renderPromptExtra || "");
 
     const renderRes = await fetch("/api/render", { method: "POST", body: formData });
     const renderData = await renderRes.json();
@@ -904,82 +907,72 @@ export default function BuiltMe() {
     setRenders([]);
     setAllRenders([]);
 
-    const KEEP_SAME =
-      "in the exact same position, scale and orientation. Keep everything else in the image exactly the same — same camera angle, same framing, same lighting, same floor, walls and ceiling.";
-
-    // One surgical edit instruction per selected product — Kontext follows
-    // single short edits far more strictly than one big multi-item prompt.
-    const editSteps: string[] = [];
-    const productCategories: string[] = [];
-    selectedProducts.forEach(key => {
-      const [itemName, optName] = key.split("__");
+    // Structured category mappings: each selected product is locked to its
+    // normalized furniture category with an explicit placement rule, so the
+    // model can't apply a dining product to a TV wall or invent new furniture
+    const productMappings = selectedProducts.map(key => {
+      const [itemName, optionName] = key.split("__");
       const product = extractedProducts.find(p => p.itemName === itemName);
-      const option = product?.options?.find(o => o.name === optName);
-      // Describe the SPECIFIC chosen option, not the generic category description —
-      // Kontext needs a visually distinct target to make a visible change
-      const desc = option
-        ? `a ${option.name}${product?.renderDescription ? ` (${product.renderDescription})` : ""} — a clearly different, brand-new piece`
-        : (product?.renderDescription || itemName);
-      const category = product?.category || itemName;
-      productCategories.push(category.toLowerCase());
-      editSteps.push(`Replace the existing ${category} with ${desc}, ${KEEP_SAME}`);
+      const option = product?.options?.find(o => o.name === optionName);
+      const normalizedCategory = normalizeFurnitureCategory(product?.category || product?.itemName || itemName);
+      return {
+        category: normalizedCategory,
+        originalCategory: product?.category || itemName,
+        optionName: option?.name || optionName || itemName,
+        brand: option?.brand || "",
+        renderDescription: product?.renderDescription || option?.name || itemName,
+        placementRule: getCategoryPlacementRule(normalizedCategory),
+      };
     });
 
-    // "What to change" selections not already covered by a product get their own step
-    const changeStepLabels: Record<string, string> = {
-      sofa: "sofa",
-      dining: "dining table and chairs",
-      lighting: "lighting fixtures",
-      wall_colour: "wall paint colour",
-      wallpaper: "wall texture",
-      rug: "rug",
-      curtains: "curtains",
-      coffee_table: "coffee table",
-      tv_unit: "TV unit",
-      decor: "decorative accessories",
-    };
+    // "What to change" pills without a selected product become style-direction
+    // mappings under the same category placement rules
     whatToChange.forEach(id => {
-      const label = changeStepLabels[id];
-      if (!label) return;
-      const covered = productCategories.some(cat => cat.includes(label.split(" ")[0]) || label.includes(cat.split(" ")[0] || ""));
-      if (covered) return;
-      editSteps.push(`Update the ${label} to match a ${results?.styleProfile?.dominantStyle || "modern"} style, ${KEEP_SAME}`);
+      if (id === "existing_only" || id === "layout") return;
+      const normalized = normalizeFurnitureCategory(id.replace(/_/g, " "));
+      if (productMappings.some(m => m.category === normalized)) return;
+      productMappings.push({
+        category: normalized,
+        originalCategory: id.replace(/_/g, " "),
+        optionName: "",
+        brand: "",
+        renderDescription: `Update in a ${results?.styleProfile?.dominantStyle || "modern"} style`,
+        placementRule: getCategoryPlacementRule(normalized),
+      });
     });
 
-    if (renderPromptExtra.trim()) {
-      editSteps.push(`${renderPromptExtra.trim()}. Keep everything else in the image exactly the same — same camera angle, same framing, same lighting.`);
+    const productsPrompt = productMappings.length > 0
+      ? productMappings.map((p) =>
+          `Category: ${p.category}
+Selected product: ${p.optionName || "style direction only"}${p.brand ? ` by ${p.brand}` : ""}
+Render description: ${p.renderDescription}
+Placement rule: ${p.placementRule}`
+        ).join("\n\n")
+      : "";
+
+    const restyleValidation = validateRestyleRenderMetadata({
+      selectedCategories: productMappings.map(m => m.category),
+    });
+    if (restyleValidation.warnings.length > 0) {
+      console.log("[restyle-validation]", restyleValidation.warnings);
     }
 
-    // Nothing selected at all — fall back to one generic restyle pass
-    if (editSteps.length === 0) {
-      editSteps.push(`Restyle the furniture and decor in a ${results?.styleProfile?.dominantStyle || "modern"} style, ${KEEP_SAME}`);
-    }
-
-    // Generate render for each uploaded photo (max 4), chaining edits sequentially:
-    // the output of each edit is the input of the next.
+    // Generate one guided restyle render per uploaded photo (max 4)
     const photosToRender = savedRoomPhotos.slice(0, 4);
     const collected: { photoIndex: number; url: string }[] = [];
 
     for (let i = 0; i < photosToRender.length; i++) {
       try {
-        let currentUrl: string | null = null;
-        for (const step of editSteps) {
-          // A failed step keeps the last successful intermediate result and
-          // must never abort the whole photo, so catch per step and retry once
-          try {
-            let resultUrl = await runEditStep(step, currentUrl ? null : photosToRender[i], currentUrl);
-            if (!resultUrl) {
-              resultUrl = await runEditStep(step, currentUrl ? null : photosToRender[i], currentUrl);
-            }
-            if (resultUrl) currentUrl = resultUrl;
-            else console.error(`Edit step failed for photo ${i}:`, step);
-          } catch (stepErr) {
-            console.error(`Edit step error for photo ${i}:`, stepErr);
-          }
+        let currentUrl = await runRestyleRender(photosToRender[i], productsPrompt);
+        if (!currentUrl) {
+          currentUrl = await runRestyleRender(photosToRender[i], productsPrompt); // retry once
         }
-        if (!currentUrl) continue;
+        if (!currentUrl) {
+          console.error(`Restyle render failed for photo ${i}`);
+          continue;
+        }
 
-        // Save final chained result to Supabase Storage
+        // Save final result to Supabase Storage
         try {
           const saveRes = await fetch("/api/save-render", {
             method: "POST",
@@ -2989,6 +2982,12 @@ export default function BuiltMe() {
                     {strictValidationMsg && (
                       <div style={{ marginBottom: 12, padding: "10px 14px", background: "#FBF3F0", border: "1px solid #E8CFC5", borderRadius: 4, fontSize: 12, color: "#B0533C" }}>
                         {strictValidationMsg}
+                      </div>
+                    )}
+
+                    {renderMode === "restyle" && (
+                      <div style={{ marginBottom: 10, fontSize: 12, color: "#AAA" }}>
+                        Restyle Room keeps your layout and applies selected products to matching furniture types.
                       </div>
                     )}
 

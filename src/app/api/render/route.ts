@@ -58,6 +58,57 @@ ${extra ? `\nAdditional instruction: ${extra}` : ""}
 `.trim();
 }
 
+// Restyle mode prompt: guided whole-room restyle with category-locked product
+// placement. Distinct from the strict mask prompt — never mix the two.
+// NOTE: FLUX Kontext has no negative_prompt input, so all negative constraints
+// (no oversized consoles, no type conversion, etc.) live inside this prompt.
+function buildRestylePrompt({
+  productsPrompt,
+  renderPromptExtra,
+}: {
+  productsPrompt: string;
+  renderPromptExtra?: string;
+}) {
+  return `
+This is a GUIDED ROOM RESTYLE task.
+
+Restyle the room using the selected product categories below, while preserving the original room layout.
+
+SELECTED PRODUCT MAPPINGS:
+${productsPrompt || "No specific products selected. Use the overall style direction only."}
+
+ABSOLUTE RULES:
+
+1. Preserve the same room structure, walls, windows, doors, balcony, ceiling, floor, camera angle, perspective, crop, and composition.
+2. Keep the room layout the same.
+3. Apply each selected product only to a matching existing object type in the room.
+4. Do not move products between zones.
+5. Keep dining items in the dining area.
+6. Keep living room items in the living area.
+7. Keep TV unit / console items only on an existing TV wall or existing console area.
+8. If a dining table product is selected, apply it only to the existing dining table. It must remain a dining table.
+9. If chair products are selected, apply them only to existing chairs.
+10. If sofa products are selected, apply them only to the existing sofa.
+11. If coffee table products are selected, apply them only to the existing coffee table, not the dining table.
+12. If lighting products are selected, apply them only to existing light fixture positions.
+13. If rug products are selected, apply them only to the rug/floor textile area.
+14. If decor products are selected, apply them subtly to existing decor areas or wall styling.
+15. Do not create a huge TV console, sideboard, cabinet, or wall unit unless that exact category is selected and an existing matching object is visible.
+16. Do not convert one furniture type into another.
+17. Do not replace a dining table with a TV console.
+18. Do not replace chairs with cabinets.
+19. Do not add oversized furniture.
+20. Keep replacement/restyled furniture within roughly the same footprint and scale as the existing matching object.
+21. If a selected product category has no clearly matching object in the room, skip it or use it only as subtle material/style inspiration.
+22. The result must look like the same room, improved, not a different room.
+
+SCALE RULE:
+Furniture must remain realistically sized. Do not generate furniture larger than the object it is replacing. Keep approximate scale between 0.8x and 1.2x of the existing matching object.
+
+${renderPromptExtra || ""}
+`.trim();
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Strict object replacement mode (JSON body)
@@ -109,11 +160,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Restyle mode (existing flow, form data)
+    // Restyle mode (form data)
     const formData = await req.formData();
-    const prompt = formData.get("prompt") as string;
+    const rawPrompt = formData.get("prompt") as string | null;
+    const productsPrompt = formData.get("productsPrompt") as string | null;
+    const renderPromptExtra = (formData.get("renderPromptExtra") as string) || "";
     const inputImageUrl = formData.get("imageUrl") as string | null;
     const imageFile = formData.get("image") as File | null;
+
+    // Structured category-mapped restyle prompt takes priority; a raw prompt
+    // (e.g. legacy chained-edit step) is still accepted as a fallback
+    const prompt = productsPrompt !== null
+      ? buildRestylePrompt({ productsPrompt, renderPromptExtra })
+      : rawPrompt;
 
     if (!prompt) {
       return NextResponse.json({ error: "No edit instruction provided" }, { status: 400 });

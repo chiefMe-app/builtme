@@ -5,6 +5,31 @@ export interface StrictRenderValidation {
 }
 
 /**
+ * Lightweight metadata checks for Restyle Room renders.
+ * TODO: extend with image-based validation (compare before/after object types).
+ */
+export function validateRestyleRenderMetadata({
+  selectedCategories,
+}: {
+  selectedCategories: string[];
+}) {
+  const warnings: string[] = [];
+
+  if (selectedCategories.includes("dining_table")) {
+    warnings.push("Check that dining table remains a dining table and was not converted to console/sideboard.");
+  }
+
+  if (!selectedCategories.includes("tv_unit")) {
+    warnings.push("Do not introduce a new TV unit/console unless selected.");
+  }
+
+  return {
+    passed: true,
+    warnings,
+  };
+}
+
+/**
  * MVP validation for strict-replacement renders.
  * Outside-mask preservation itself is guaranteed structurally: the final image
  * is composited from the original photo outside the mask (see imageComposite.ts),
