@@ -97,12 +97,14 @@ interface ScopeOfWork {
 }
 
 interface ExtractedProductOption {
+  id?: string;
   name: string;
   brand: string;
   price: string;
   tier: string;
   productUrl?: string;
   imageUrl?: string;
+  renderDescription?: string;
 }
 
 interface ObjectBbox {
@@ -815,7 +817,7 @@ export default function BuiltMe() {
     return {
       category: product.category,
       itemName: product.itemName,
-      renderDescription: product.renderDescription,
+      renderDescription: option.renderDescription || product.renderDescription,
       name: option.name,
       brand: option.brand,
       price: option.price,
@@ -878,7 +880,7 @@ export default function BuiltMe() {
     const product = extractedProducts.find(p => p.itemName === itemName);
     const option = product?.options?.find(o => o.name === optionName);
     const replacementRenderDescription = option
-      ? `${option.name}${product?.renderDescription ? ` — ${product.renderDescription}` : ""}`
+      ? `${option.renderDescription || product?.renderDescription || option.name} (${option.name})`
       : (product?.renderDescription || optionName || itemName);
 
     const submitAndPoll = async (): Promise<{ images: string[]; category?: string; productName?: string } | null> => {
@@ -991,7 +993,7 @@ export default function BuiltMe() {
         originalCategory: product?.category || itemName,
         optionName: option?.name || optionName || itemName,
         brand: option?.brand || "",
-        renderDescription: product?.renderDescription || option?.name || itemName,
+        renderDescription: option?.renderDescription || product?.renderDescription || option?.name || itemName,
         placementRule: getCategoryPlacementRule(normalizedCategory),
       };
     });
@@ -2670,13 +2672,15 @@ Placement rule: ${p.placementRule}`
                                 {product.options?.map((opt, j) => {
                                   const optionKey = `${product.itemName}__${opt.name}`;
                                   const isSelected = selectedProducts.includes(optionKey);
-                                  // Only show validated real product images; otherwise safe category fallback
-                                  const imageSrc = isValidProductImageUrl({
+                                  // Curated catalog image is the source of truth; if missing
+                                  // or invalid, show a clearly-labelled category reference image
+                                  const hasCatalogImage = isValidProductImageUrl({
                                     imageUrl: opt.imageUrl,
                                     productName: opt.name,
                                     category: product.category,
                                     brand: opt.brand,
-                                  })
+                                  });
+                                  const imageSrc = hasCatalogImage
                                     ? opt.imageUrl!
                                     : getFurnitureImage(product.category || product.itemName);
                                   return (
@@ -2696,14 +2700,21 @@ Placement rule: ${p.placementRule}`
                                         transition: "all 0.2s",
                                       }}
                                     >
-                                      <img
-                                        src={imageSrc}
-                                        alt={opt.name}
-                                        onError={(e) => {
-                                          e.currentTarget.src = getFurnitureImage(product.category || product.itemName);
-                                        }}
-                                        style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, marginBottom: 8, background: "#F7F3EC" }}
-                                      />
+                                      <div style={{ position: "relative", marginBottom: 8 }}>
+                                        <img
+                                          src={imageSrc}
+                                          alt={opt.name}
+                                          onError={(e) => {
+                                            e.currentTarget.src = getFurnitureImage(product.category || product.itemName);
+                                          }}
+                                          style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, display: "block", background: "#F7F3EC" }}
+                                        />
+                                        {!hasCatalogImage && (
+                                          <span style={{ position: "absolute", bottom: 4, left: 4, fontSize: 8, fontFamily: "monospace", letterSpacing: "0.05em", color: "#FFF", background: "rgba(0,0,0,0.45)", padding: "2px 6px", borderRadius: 3 }}>
+                                            REFERENCE IMAGE
+                                          </span>
+                                        )}
+                                      </div>
                                       <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 2 }}>{opt.name}</div>
                                       <div style={{ fontSize: 11, color: "#888" }}>{opt.brand}</div>
                                       <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>AED {opt.price}</div>
