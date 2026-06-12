@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import { segmentObjectAtPoint } from "@/lib/falStrictEdit";
+import { expandFurnitureBbox, getBboxAreaRatio, isBboxTooSmallForCategory } from "@/lib/expandFurnitureBbox";
+import { createBboxMask } from "@/lib/bboxMask";
 
 export const maxDuration = 120;
 
@@ -71,31 +73,70 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const bbox = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+    const originalBbox = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
     const maskArea = onCount / (info.width * info.height);
 
-    // 4. Upload the processed mask (white object on black, image-sized — the
-    //    format FLUX Fill expects) to Supabase Storage
-    const maskFileName = `mask-${Date.now()}.png`;
-    const { error: uploadError } = await supabase.storage
-      .from("builtme-uploads")
-      .upload(maskFileName, dilatedMaskBuf, { contentType: "image/png", upsert: true });
-    if (uploadError) throw new Error(`Mask upload failed: ${uploadError.message}`);
-    const { data: urlData } = supabase.storage.from("builtme-uploads").getPublicUrl(maskFileName);
-
-    // 5. Category: SAM2 is class-agnostic, so we rely on the caller's hint.
+    // 4. Category: SAM2 is class-agnostic, so we rely on the caller's hint.
     // TODO: classify the masked object (e.g. crop bbox and ask Claude vision)
     // so the category is detected automatically instead of "unknown".
     const category = targetCategory || "unknown";
 
+    // 5. If the segmented region is implausibly small for a full object of this
+    // category (e.g. one sofa cushion), expand the bbox and use a rectangular
+    // bbox mask covering the full expected object instead of the partial mask
+    const bboxAreaRatioBefore = getBboxAreaRatio({ bbox: originalBbox, imageWidth: info.width, imageHeight: info.height });
+    const tooSmall = isBboxTooSmallForCategory({ bbox: originalBbox, category, imageWidth: info.width, imageHeight: info.height });
+
+    let bbox = originalBbox;
+    let maskUrl: string;
+    let wasExpanded = false;
+    let usedFallbackMask = false;
+    let warning: string | undefined;
+
+    if (tooSmall) {
+      bbox = expandFurnitureBbox({ bbox: originalBbox, category, imageWidth: info.width, imageHeight: info.height });
+      maskUrl = await createBboxMask({ bbox, imageWidth: info.width, imageHeight: info.height });
+      wasExpanded = true;
+      usedFallbackMask = true;
+      warning = `Selected area looked too small for a ${category.replace(/_/g, " ")}, so we expanded it to cover the full object.`;
+    } else {
+      // Upload the SAM2 mask (white object on black, image-sized — the format
+      // FLUX Fill expects) to Supabase Storage
+      const maskFileName = `mask-${Date.now()}.png`;
+      const { error: uploadError } = await supabase.storage
+        .from("builtme-uploads")
+        .upload(maskFileName, dilatedMaskBuf, { contentType: "image/png", upsert: true });
+      if (uploadError) throw new Error(`Mask upload failed: ${uploadError.message}`);
+      maskUrl = supabase.storage.from("builtme-uploads").getPublicUrl(maskFileName).data.publicUrl;
+    }
+
+    const bboxAreaRatioAfter = getBboxAreaRatio({ bbox, imageWidth: info.width, imageHeight: info.height });
+
+    console.log("[strict-selection]", {
+      category,
+      originalBbox,
+      expandedBbox: wasExpanded ? bbox : null,
+      bboxAreaRatioBefore,
+      bboxAreaRatioAfter,
+      maskUrlExists: Boolean(maskUrl),
+      wasExpanded,
+      usedFallbackMask,
+    });
+
     return NextResponse.json({
-      maskUrl: urlData.publicUrl,
+      maskUrl,
       bbox,
+      originalBbox,
       category,
       maskArea,
       // TODO: SAM2 via this endpoint doesn't expose a confidence score; using a
       // fixed placeholder until we switch to a model that returns one.
       confidence: 0.9,
+      usedFallbackMask,
+      wasExpanded,
+      bboxAreaRatioBefore,
+      bboxAreaRatioAfter,
+      warning,
     });
   } catch (err) {
     console.error("Segmentation error:", err);

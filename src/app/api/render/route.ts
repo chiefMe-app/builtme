@@ -74,6 +74,13 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      console.log("[strict-render]", {
+        selectedObjectCategory: body.selectedObjectCategory,
+        selectedObjectBbox: body.selectedObjectBbox,
+        hasMask: Boolean(body.selectedObjectMaskUrl),
+        strictMode: body.strictMode,
+      });
+
       const strictPrompt = buildStrictEditPrompt(
         body.selectedObjectCategory,
         body.replacementRenderDescription,

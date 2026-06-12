@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { isValidProductImageUrl, isValidProductUrl } from "@/lib/validateProductImage";
+import { isBboxTooSmallForCategory } from "@/lib/expandFurnitureBbox";
 import type { User } from "@supabase/supabase-js";
 
 interface ColorSwatch {
@@ -371,6 +372,11 @@ export default function BuiltMe() {
   const [renderMode, setRenderMode] = useState<"restyle" | "strict_replace">("restyle");
   const [selectedObjectMaskUrl, setSelectedObjectMaskUrl] = useState<string | null>(null);
   const [selectedObjectBbox, setSelectedObjectBbox] = useState<ObjectBbox | null>(null);
+  const [selectedObjectOriginalBbox, setSelectedObjectOriginalBbox] = useState<ObjectBbox | null>(null);
+  const [selectedObjectWasExpanded, setSelectedObjectWasExpanded] = useState(false);
+  const [selectedObjectUsedFallbackMask, setSelectedObjectUsedFallbackMask] = useState(false);
+  const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
+  const [isExpandingSelection, setIsExpandingSelection] = useState(false);
   const [selectedObjectCategory, setSelectedObjectCategory] = useState<string | null>(null);
   const [isSegmentingObject, setIsSegmentingObject] = useState(false);
   const [segmentError, setSegmentError] = useState<string | null>(null);
@@ -644,9 +650,47 @@ export default function BuiltMe() {
   const clearObjectSelection = () => {
     setSelectedObjectMaskUrl(null);
     setSelectedObjectBbox(null);
+    setSelectedObjectOriginalBbox(null);
+    setSelectedObjectWasExpanded(false);
+    setSelectedObjectUsedFallbackMask(false);
+    setSelectionWarning(null);
     setSelectedObjectCategory(null);
     setSegmentError(null);
     setStrictValidationMsg(null);
+  };
+
+  // Expand the current selection to cover the full furniture object and
+  // regenerate the mask from the expanded bbox
+  const expandSelection = async (categoryOverride?: string | null) => {
+    if (!selectedObjectBbox || !strictImageDims || isExpandingSelection) return;
+    setIsExpandingSelection(true);
+    try {
+      const res = await fetch("/api/expand-selection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bbox: selectedObjectBbox,
+          category: categoryOverride ?? selectedObjectCategory,
+          imageWidth: strictImageDims.w,
+          imageHeight: strictImageDims.h,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error || !data.maskUrl) {
+        setSegmentError(data.error || "Could not expand the selection. Please try selecting again.");
+        return;
+      }
+      setSelectedObjectBbox(data.bbox);
+      setSelectedObjectMaskUrl(data.maskUrl);
+      setSelectedObjectWasExpanded(true);
+      setSelectedObjectUsedFallbackMask(true);
+      setStrictValidationMsg(null);
+    } catch (err) {
+      console.error("Expand selection failed:", err);
+      setSegmentError("Could not expand the selection. Please try selecting again.");
+    } finally {
+      setIsExpandingSelection(false);
+    }
   };
 
   // Loose category matching between detected object categories ("coffee_table")
@@ -675,6 +719,10 @@ export default function BuiltMe() {
     setSegmentError(null);
     setSelectedObjectMaskUrl(null);
     setSelectedObjectBbox(null);
+    setSelectedObjectOriginalBbox(null);
+    setSelectedObjectWasExpanded(false);
+    setSelectedObjectUsedFallbackMask(false);
+    setSelectionWarning(null);
     setSelectedObjectCategory(null);
 
     try {
@@ -705,6 +753,10 @@ export default function BuiltMe() {
       }
       setSelectedObjectMaskUrl(data.maskUrl);
       setSelectedObjectBbox(data.bbox);
+      setSelectedObjectOriginalBbox(data.originalBbox || data.bbox);
+      setSelectedObjectWasExpanded(Boolean(data.wasExpanded));
+      setSelectedObjectUsedFallbackMask(Boolean(data.usedFallbackMask));
+      setSelectionWarning(data.warning || null);
       setSelectedObjectCategory(data.category || "unknown");
     } catch (err) {
       console.error("Object selection failed:", err);
@@ -725,8 +777,25 @@ export default function BuiltMe() {
         return categoryMatches(product?.category, selectedObjectCategory);
       }) || selectedProducts[0];
 
-    if (!strictImageUrl || !selectedObjectMaskUrl || !selectedObjectBbox || !strictKey) {
+    if (!strictImageUrl || !selectedObjectMaskUrl || !selectedObjectBbox || !selectedObjectCategory || !strictKey) {
       setStrictValidationMsg("Please select the object you want to replace and choose one replacement product.");
+      return;
+    }
+
+    // Never run strict replacement with an implausibly small mask (e.g. one
+    // sofa cushion) — the render would change nothing or a tiny patch
+    if (
+      strictImageDims &&
+      isBboxTooSmallForCategory({
+        bbox: selectedObjectBbox,
+        category: selectedObjectCategory,
+        imageWidth: strictImageDims.w,
+        imageHeight: strictImageDims.h,
+      })
+    ) {
+      setStrictValidationMsg(
+        `Selection is too small for ${selectedObjectCategory.replace(/_/g, " ")} replacement. Please expand selection or tap the center of the full ${selectedObjectCategory.replace(/_/g, " ")}.`
+      );
       return;
     }
     setStrictValidationMsg(null);
@@ -2777,8 +2846,49 @@ export default function BuiltMe() {
                             >
                               Clear selection
                             </button>
+                            <button
+                              onClick={() => expandSelection()}
+                              disabled={isExpandingSelection}
+                              style={{ fontSize: 12, color: "#7A6A55", background: "none", border: "1px solid #C4A882", borderRadius: 20, padding: "4px 12px", cursor: isExpandingSelection ? "wait" : "pointer" }}
+                            >
+                              {isExpandingSelection ? "Expanding..." : "Expand selection"}
+                            </button>
                             {/* TODO: manual brush/refine mask mode for imperfect selections */}
                           </div>
+                        )}
+
+                        {selectionWarning && (
+                          <div style={{ marginTop: 8, fontSize: 12, color: "#8A6D3B", background: "#FCF8E3", border: "1px solid #F0E6C8", borderRadius: 4, padding: "8px 12px" }}>
+                            {selectionWarning}
+                          </div>
+                        )}
+                        {selectedObjectUsedFallbackMask && (
+                          <div style={{ marginTop: 6, fontSize: 11, color: "#AAA" }}>
+                            Using bbox fallback mask for this selection.
+                          </div>
+                        )}
+
+                        {/* Selection debug info */}
+                        {selectedObjectMaskUrl && (
+                          <details style={{ marginTop: 8 }}>
+                            <summary style={{ fontSize: 11, color: "#BBB", cursor: "pointer" }}>Selection details</summary>
+                            <pre style={{ fontSize: 10, color: "#999", background: "#FAF8F5", padding: 8, borderRadius: 4, overflow: "auto" }}>
+{JSON.stringify({
+  category: selectedObjectCategory,
+  originalBbox: selectedObjectOriginalBbox,
+  finalBbox: selectedObjectBbox,
+  wasExpanded: selectedObjectWasExpanded,
+  usedFallbackMask: selectedObjectUsedFallbackMask,
+  maskExists: Boolean(selectedObjectMaskUrl),
+  bboxAreaRatioBefore: selectedObjectOriginalBbox && strictImageDims
+    ? ((selectedObjectOriginalBbox.width * selectedObjectOriginalBbox.height) / (strictImageDims.w * strictImageDims.h)).toFixed(4)
+    : null,
+  bboxAreaRatioAfter: selectedObjectBbox && strictImageDims
+    ? ((selectedObjectBbox.width * selectedObjectBbox.height) / (strictImageDims.w * strictImageDims.h)).toFixed(4)
+    : null,
+}, null, 2)}
+                            </pre>
+                          </details>
                         )}
 
                         {/* Unknown category — let the user pick manually */}
@@ -2789,7 +2899,19 @@ export default function BuiltMe() {
                               {["sofa", "coffee_table", "rug", "lighting", "chair", "dining_table", "decor"].map(cat => (
                                 <button
                                   key={cat}
-                                  onClick={() => setSelectedObjectCategory(cat)}
+                                  onClick={() => {
+                                    setSelectedObjectCategory(cat);
+                                    // The SAM2 mask may only cover the clicked part (one
+                                    // cushion) — once we know the category, auto-expand
+                                    // the selection if it's implausibly small
+                                    if (
+                                      selectedObjectBbox && strictImageDims &&
+                                      isBboxTooSmallForCategory({ bbox: selectedObjectBbox, category: cat, imageWidth: strictImageDims.w, imageHeight: strictImageDims.h })
+                                    ) {
+                                      expandSelection(cat);
+                                      setSelectionWarning(`Selected area looked too small for a ${cat.replace(/_/g, " ")}, so we expanded it to cover the full object.`);
+                                    }
+                                  }}
                                   style={{
                                     padding: "6px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer",
                                     background: "#FFF", color: "#666", border: "1px solid #EAE4D9",
