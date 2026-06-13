@@ -7,6 +7,10 @@ import { isValidProductImageUrl, isValidProductUrl } from "@/lib/validateProduct
 import { isBboxTooSmallForCategory } from "@/lib/expandFurnitureBbox";
 import { normalizeFurnitureCategory, getCategoryPlacementRule } from "@/lib/normalizeFurnitureCategory";
 import { validateRestyleRenderMetadata } from "@/lib/renderValidation";
+import { UAE_FURNITURE_CATALOG, CatalogProduct } from "@/data/uaeFurnitureCatalog";
+import { getSupplierOptionsForObject } from "@/lib/getSupplierOptionsForObject";
+import { isCompatibleReplacement } from "@/lib/isCompatibleReplacement";
+import { runSequentialStrictReplacements, StrictReplacementStep } from "@/lib/runSequentialStrictReplacements";
 import type { User } from "@supabase/supabase-js";
 
 interface ColorSwatch {
@@ -135,7 +139,38 @@ interface RenderHistoryEntry {
   angleLabel?: string;
   selectedCategory?: string;
   selectedProduct?: SelectedReplacementProduct | null;
+  appliedReplacements?: SelectedReplacement[];
   promptExtra?: string;
+}
+
+// A furniture object the user has tapped/segmented in the room photo
+interface SelectedObject {
+  id: string;
+  category: string;
+  label: string;
+  bbox: ObjectBbox;
+  maskUrl: string;
+  originalBbox?: ObjectBbox;
+  wasExpanded?: boolean;
+  usedFallbackMask?: boolean;
+  imageWidth?: number;
+  imageHeight?: number;
+}
+
+// The catalog product chosen to replace a specific selected object
+interface SelectedReplacement {
+  selectedObjectId: string;
+  objectCategory: string;
+  objectLabel: string;
+  productId: string;
+  productName: string;
+  supplier: string;
+  brand: string;
+  category: string;
+  price: number | string;
+  imageUrl?: string;
+  productUrl?: string;
+  renderDescription: string;
 }
 
 interface ExtractedProduct {
@@ -396,16 +431,14 @@ export default function BuiltMe() {
   const [extractingProducts, setExtractingProducts] = useState(false);
   const [allRenders, setAllRenders] = useState<{ photoIndex: number; url: string }[]>([]);
   const [whatToChange, setWhatToChange] = useState<string[]>([]);
-  // Strict object replacement mode
+  // Strict object replacement mode — multi-object selection
   const [renderMode, setRenderMode] = useState<"restyle" | "strict_replace">("restyle");
-  const [selectedObjectMaskUrl, setSelectedObjectMaskUrl] = useState<string | null>(null);
-  const [selectedObjectBbox, setSelectedObjectBbox] = useState<ObjectBbox | null>(null);
-  const [selectedObjectOriginalBbox, setSelectedObjectOriginalBbox] = useState<ObjectBbox | null>(null);
-  const [selectedObjectWasExpanded, setSelectedObjectWasExpanded] = useState(false);
-  const [selectedObjectUsedFallbackMask, setSelectedObjectUsedFallbackMask] = useState(false);
+  const [selectedObjects, setSelectedObjects] = useState<SelectedObject[]>([]);
+  const [activeSelectedObjectId, setActiveSelectedObjectId] = useState<string | null>(null);
+  const [selectedReplacements, setSelectedReplacements] = useState<SelectedReplacement[]>([]);
+  const [activeSupplier, setActiveSupplier] = useState<string | null>(null);
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
   const [isExpandingSelection, setIsExpandingSelection] = useState(false);
-  const [selectedObjectCategory, setSelectedObjectCategory] = useState<string | null>(null);
   const [isSegmentingObject, setIsSegmentingObject] = useState(false);
   const [segmentError, setSegmentError] = useState<string | null>(null);
   const [strictImageUrl, setStrictImageUrl] = useState<string | null>(null);
@@ -676,30 +709,74 @@ export default function BuiltMe() {
     setExtractingProducts(false);
   };
 
+  const activeSelectedObject = selectedObjects.find(o => o.id === activeSelectedObjectId) || null;
+
+  // Human label for a category, numbered when the same category repeats
+  // (e.g. "Chair 1", "Chair 2")
+  const labelForCategory = (category: string, existing: SelectedObject[]): string => {
+    const base = category.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const sameCat = existing.filter(o => o.category === category).length;
+    return sameCat > 0 ? `${base} ${sameCat + 1}` : base;
+  };
+
+  const updateSelectedObject = (id: string, patch: Partial<SelectedObject>) => {
+    setSelectedObjects(prev => prev.map(o => (o.id === id ? { ...o, ...patch } : o)));
+  };
+
+  const removeSelectedObject = (id: string) => {
+    setSelectedObjects(prev => prev.filter(o => o.id !== id));
+    setSelectedReplacements(prev => prev.filter(r => r.selectedObjectId !== id));
+    setActiveSelectedObjectId(prev => {
+      if (prev !== id) return prev;
+      const remaining = selectedObjects.filter(o => o.id !== id);
+      return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
+    });
+  };
+
   const clearObjectSelection = () => {
-    setSelectedObjectMaskUrl(null);
-    setSelectedObjectBbox(null);
-    setSelectedObjectOriginalBbox(null);
-    setSelectedObjectWasExpanded(false);
-    setSelectedObjectUsedFallbackMask(false);
+    setSelectedObjects([]);
+    setActiveSelectedObjectId(null);
+    setSelectedReplacements([]);
+    setActiveSupplier(null);
     setSelectionWarning(null);
-    setSelectedObjectCategory(null);
     setSegmentError(null);
     setStrictValidationMsg(null);
   };
 
-  // Expand the current selection to cover the full furniture object and
-  // regenerate the mask from the expanded bbox
-  const expandSelection = async (categoryOverride?: string | null) => {
-    if (!selectedObjectBbox || !strictImageDims || isExpandingSelection) return;
+  // Choose / change the replacement product for one selected object
+  const setReplacementForObject = (obj: SelectedObject, product: CatalogProduct) => {
+    setSelectedReplacements(prev => {
+      const withoutCurrent = prev.filter(r => r.selectedObjectId !== obj.id);
+      return [...withoutCurrent, {
+        selectedObjectId: obj.id,
+        objectCategory: obj.category,
+        objectLabel: obj.label,
+        productId: product.id,
+        productName: product.name,
+        supplier: product.supplier,
+        brand: product.brand,
+        category: product.category,
+        price: product.price,
+        imageUrl: product.imageUrl,
+        productUrl: product.productUrl,
+        renderDescription: product.renderDescription,
+      }];
+    });
+  };
+
+  // Expand a selected object's bbox to cover the full furniture item and
+  // regenerate its mask from the expanded bbox
+  const expandSelection = async (objId: string, categoryOverride?: string | null) => {
+    const obj = selectedObjects.find(o => o.id === objId);
+    if (!obj || !strictImageDims || isExpandingSelection) return;
     setIsExpandingSelection(true);
     try {
       const res = await fetch("/api/expand-selection", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          bbox: selectedObjectBbox,
-          category: categoryOverride ?? selectedObjectCategory,
+          bbox: obj.bbox,
+          category: categoryOverride ?? obj.category,
           imageWidth: strictImageDims.w,
           imageHeight: strictImageDims.h,
         }),
@@ -709,10 +786,7 @@ export default function BuiltMe() {
         setSegmentError(data.error || "Could not expand the selection. Please try selecting again.");
         return;
       }
-      setSelectedObjectBbox(data.bbox);
-      setSelectedObjectMaskUrl(data.maskUrl);
-      setSelectedObjectWasExpanded(true);
-      setSelectedObjectUsedFallbackMask(true);
+      updateSelectedObject(objId, { bbox: data.bbox, maskUrl: data.maskUrl, wasExpanded: true, usedFallbackMask: true });
       setStrictValidationMsg(null);
     } catch (err) {
       console.error("Expand selection failed:", err);
@@ -720,16 +794,6 @@ export default function BuiltMe() {
     } finally {
       setIsExpandingSelection(false);
     }
-  };
-
-  // Loose category matching between detected object categories ("coffee_table")
-  // and extracted product categories ("coffee table")
-  const categoryMatches = (a?: string | null, b?: string | null) => {
-    const norm = (c?: string | null) => (c || "").toLowerCase().replace(/[_\s]+/g, " ").trim();
-    const x = norm(a);
-    const y = norm(b);
-    if (!x || !y || x === "unknown" || y === "unknown") return false;
-    return x.includes(y.split(" ")[0]) || y.includes(x.split(" ")[0]);
   };
 
   const handleImageObjectClick = async (e: React.MouseEvent<HTMLImageElement>) => {
@@ -746,13 +810,7 @@ export default function BuiltMe() {
 
     setIsSegmentingObject(true);
     setSegmentError(null);
-    setSelectedObjectMaskUrl(null);
-    setSelectedObjectBbox(null);
-    setSelectedObjectOriginalBbox(null);
-    setSelectedObjectWasExpanded(false);
-    setSelectedObjectUsedFallbackMask(false);
     setSelectionWarning(null);
-    setSelectedObjectCategory(null);
 
     try {
       // Upload the photo once so segmentation and rendering share the same URL
@@ -780,13 +838,25 @@ export default function BuiltMe() {
         setSegmentError(data.error || "We couldn't detect the object clearly. Please tap the center of the item again.");
         return;
       }
-      setSelectedObjectMaskUrl(data.maskUrl);
-      setSelectedObjectBbox(data.bbox);
-      setSelectedObjectOriginalBbox(data.originalBbox || data.bbox);
-      setSelectedObjectWasExpanded(Boolean(data.wasExpanded));
-      setSelectedObjectUsedFallbackMask(Boolean(data.usedFallbackMask));
+
+      // Append as a new selected object (don't lose previous selections)
+      const category = data.category || "unknown";
+      const newObj: SelectedObject = {
+        id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+        category,
+        label: labelForCategory(category, selectedObjects),
+        bbox: data.bbox,
+        maskUrl: data.maskUrl,
+        originalBbox: data.originalBbox || data.bbox,
+        wasExpanded: Boolean(data.wasExpanded),
+        usedFallbackMask: Boolean(data.usedFallbackMask),
+        imageWidth: naturalW,
+        imageHeight: naturalH,
+      };
+      setSelectedObjects(prev => [...prev, newObj]);
+      setActiveSelectedObjectId(newObj.id);
+      setActiveSupplier(null);
       setSelectionWarning(data.warning || null);
-      setSelectedObjectCategory(data.category || "unknown");
     } catch (err) {
       console.error("Object selection failed:", err);
       setSegmentError("We couldn't detect the object clearly. Please tap the center of the item again.");
@@ -839,63 +909,65 @@ export default function BuiltMe() {
     setActiveRenderId(newEntry.id);
   };
 
-  // Strict mode: one selected object, one selected product, mask-only inpainting,
-  // final image composited from the original outside the mask (server-side)
+  // Strict mode: replace each selected object with its chosen catalog product,
+  // applied sequentially (each edit composited onto the running result) so
+  // multiple objects can be replaced while preserving earlier edits.
   const generateStrictRender = async () => {
-    // Prefer a selected product whose category matches the detected object
-    const strictKey =
-      selectedProducts.find(key => {
-        const [itemName] = key.split("__");
-        const product = extractedProducts.find(p => p.itemName === itemName);
-        return categoryMatches(product?.category, selectedObjectCategory);
-      }) || selectedProducts[0];
-
-    if (!strictImageUrl || !selectedObjectMaskUrl || !selectedObjectBbox || !selectedObjectCategory || !strictKey) {
+    if (!strictImageUrl || selectedObjects.length === 0) {
       setStrictValidationMsg("Please select the object you want to replace and choose one replacement product.");
       return;
     }
 
-    // Never run strict replacement with an implausibly small mask (e.g. one
-    // sofa cushion) — the render would change nothing or a tiny patch
-    if (
-      strictImageDims &&
-      isBboxTooSmallForCategory({
-        bbox: selectedObjectBbox,
-        category: selectedObjectCategory,
-        imageWidth: strictImageDims.w,
-        imageHeight: strictImageDims.h,
-      })
-    ) {
-      setStrictValidationMsg(
-        `Selection is too small for ${selectedObjectCategory.replace(/_/g, " ")} replacement. Please expand selection or tap the center of the full ${selectedObjectCategory.replace(/_/g, " ")}.`
-      );
+    // Build a step per object that has a chosen, category-compatible replacement
+    const steps: StrictReplacementStep[] = [];
+    for (const obj of selectedObjects) {
+      const repl = selectedReplacements.find(r => r.selectedObjectId === obj.id);
+      if (!repl || !isCompatibleReplacement(obj.category, repl.category)) continue;
+
+      // Block implausibly small masks (e.g. one sofa cushion)
+      if (
+        strictImageDims &&
+        isBboxTooSmallForCategory({ bbox: obj.bbox, category: obj.category, imageWidth: strictImageDims.w, imageHeight: strictImageDims.h })
+      ) {
+        setStrictValidationMsg(
+          `${obj.label} selection is too small. Please expand it or tap the center of the full ${obj.category.replace(/_/g, " ")}.`
+        );
+        return;
+      }
+
+      steps.push({
+        selectedObjectId: obj.id,
+        maskUrl: obj.maskUrl,
+        bbox: obj.bbox,
+        category: obj.category,
+        renderDescription: `${repl.renderDescription} (${repl.productName})`,
+        productName: repl.productName,
+      });
+    }
+
+    if (steps.length === 0) {
+      setStrictValidationMsg("Please choose one replacement product for at least one selected object.");
       return;
     }
+
     setStrictValidationMsg(null);
     setRenderLoading(true);
     setRenders([]);
     setAllRenders([]);
 
-    const [itemName, optionName] = strictKey.split("__");
-    const product = extractedProducts.find(p => p.itemName === itemName);
-    const option = product?.options?.find(o => o.name === optionName);
-    const replacementRenderDescription = option
-      ? `${option.renderDescription || product?.renderDescription || option.name} (${option.name})`
-      : (product?.renderDescription || optionName || itemName);
-
-    const submitAndPoll = async (): Promise<{ images: string[]; category?: string; productName?: string } | null> => {
+    const runStep = async (step: StrictReplacementStep, inputImageUrl: string): Promise<string | null> => {
       const res = await fetch("/api/render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           strictMode: true,
           renderMode: "strict_replace",
-          imageUrl: strictImageUrl,
-          selectedObjectMaskUrl,
-          selectedObjectBbox,
-          selectedObjectCategory,
-          replacementRenderDescription,
-          replacementProductName: option?.name || itemName,
+          imageUrl: inputImageUrl,
+          selectedObjectMaskUrl: step.maskUrl,
+          selectedObjectBbox: step.bbox,
+          selectedObjectCategory: step.category,
+          replacementRenderDescription: step.renderDescription,
+          replacementProductName: step.productName,
           renderPromptExtra: renderPromptExtra || "",
         }),
       });
@@ -905,33 +977,48 @@ export default function BuiltMe() {
         await new Promise(r => setTimeout(r, 3000));
         const sRes = await fetch(`/api/render-status?id=${data.predictionId}&provider=fal-fill`);
         const sData = await sRes.json();
-        if (sData.status === "succeeded" && sData.images?.length > 0) return sData;
+        if (sData.status === "succeeded" && sData.images?.length > 0) return sData.images[0];
         if (sData.status === "failed") return null;
       }
       return null;
     };
 
     try {
-      let result = await submitAndPoll();
-      if (!result) result = await submitAndPoll(); // retry once on failure
+      const { finalImageUrl, appliedSteps } = await runSequentialStrictReplacements({
+        baseImageUrl: strictImageUrl,
+        steps,
+        runStep,
+      });
 
-      if (result) {
-        const url = result.images[0];
-        setAllRenders([{ photoIndex: selectedRenderPhoto, url }]);
-        setRenders([url]);
+      if (appliedSteps.length > 0 && finalImageUrl !== strictImageUrl) {
+        setAllRenders([{ photoIndex: selectedRenderPhoto, url: finalImageUrl }]);
+        setRenders([finalImageUrl]);
+        const appliedReplacements = appliedSteps
+          .map(s => selectedReplacements.find(r => r.selectedObjectId === s.selectedObjectId))
+          .filter((r): r is SelectedReplacement => Boolean(r));
         appendRenderToHistory({
           mode: "strict_replace",
           beforeImage: strictImageUrl,
-          afterImage: url,
+          afterImage: finalImageUrl,
           angleLabel: `Angle ${selectedRenderPhoto + 1}`,
-          selectedCategory: result.category || selectedObjectCategory || undefined,
-          selectedProduct: getSelectedReplacementProduct(),
+          selectedCategory: appliedReplacements[0]?.objectCategory,
+          selectedProduct: appliedReplacements[0]
+            ? {
+                category: appliedReplacements[0].category,
+                name: appliedReplacements[0].productName,
+                brand: appliedReplacements[0].brand,
+                price: String(appliedReplacements[0].price),
+                imageUrl: appliedReplacements[0].imageUrl,
+                productUrl: appliedReplacements[0].productUrl,
+              }
+            : null,
+          appliedReplacements,
           promptExtra: renderPromptExtra || "",
         });
-        localStorage.setItem("builtme_renders", JSON.stringify([url]));
+        localStorage.setItem("builtme_renders", JSON.stringify([finalImageUrl]));
         if (savedProjectId) {
           try {
-            await supabase.from("builtme_projects").update({ renders: [url] }).eq("id", savedProjectId);
+            await supabase.from("builtme_projects").update({ renders: [finalImageUrl] }).eq("id", savedProjectId);
           } catch (dbErr) {
             console.error("Failed to update project renders:", dbErr);
           }
@@ -2886,11 +2973,11 @@ Placement rule: ${p.placementRule}`
                       </div>
                     )}
 
-                    {/* Strict mode: click-to-select object */}
+                    {/* Strict mode: multi-object click-to-select */}
                     {renderMode === "strict_replace" && savedRoomPhotos.length > 0 && (
                       <div style={{ marginBottom: 20 }}>
                         <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
-                          TAP THE ITEM YOU WANT TO REPLACE
+                          TAP EACH ITEM YOU WANT TO REPLACE
                         </div>
                         <div style={{ position: "relative", borderRadius: 4, overflow: "hidden", border: "1px solid #EAE4D9" }}>
                           <img
@@ -2899,22 +2986,30 @@ Placement rule: ${p.placementRule}`
                             onClick={handleImageObjectClick}
                             style={{ width: "100%", display: "block", cursor: isSegmentingObject ? "wait" : "crosshair" }}
                           />
-                          {/* Selected object bbox overlay */}
-                          {selectedObjectBbox && strictImageDims && (
-                            <div
-                              style={{
-                                position: "absolute",
-                                left: `${(selectedObjectBbox.x / strictImageDims.w) * 100}%`,
-                                top: `${(selectedObjectBbox.y / strictImageDims.h) * 100}%`,
-                                width: `${(selectedObjectBbox.width / strictImageDims.w) * 100}%`,
-                                height: `${(selectedObjectBbox.height / strictImageDims.h) * 100}%`,
-                                border: "2px solid #C4A882",
-                                background: "rgba(196, 168, 130, 0.18)",
-                                borderRadius: 2,
-                                pointerEvents: "none",
-                              }}
-                            />
-                          )}
+                          {/* Overlay every selected object's bbox; highlight the active one */}
+                          {strictImageDims && selectedObjects.map(obj => {
+                            const isActive = obj.id === activeSelectedObjectId;
+                            return (
+                              <div
+                                key={obj.id}
+                                style={{
+                                  position: "absolute",
+                                  left: `${(obj.bbox.x / strictImageDims.w) * 100}%`,
+                                  top: `${(obj.bbox.y / strictImageDims.h) * 100}%`,
+                                  width: `${(obj.bbox.width / strictImageDims.w) * 100}%`,
+                                  height: `${(obj.bbox.height / strictImageDims.h) * 100}%`,
+                                  border: `2px solid ${isActive ? "#C4A882" : "#9C8B70"}`,
+                                  background: isActive ? "rgba(196, 168, 130, 0.22)" : "rgba(156, 139, 112, 0.10)",
+                                  borderRadius: 2,
+                                  pointerEvents: "none",
+                                }}
+                              >
+                                <span style={{ position: "absolute", top: -1, left: -1, fontSize: 9, background: isActive ? "#C4A882" : "#9C8B70", color: "#FFF", padding: "1px 5px", borderRadius: "2px 0 4px 0" }}>
+                                  {obj.label}
+                                </span>
+                              </div>
+                            );
+                          })}
                           {isSegmentingObject && (
                             <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#555" }}>
                               Detecting object...
@@ -2925,171 +3020,229 @@ Placement rule: ${p.placementRule}`
                         {segmentError && (
                           <div style={{ marginTop: 8, fontSize: 12, color: "#B0533C" }}>{segmentError}</div>
                         )}
-
-                        {selectedObjectMaskUrl && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                            <span style={{ fontSize: 12, color: "#7A6A55", background: "#F0EBE2", padding: "4px 10px", borderRadius: 20 }}>
-                              ✓ Object selected{selectedObjectCategory && selectedObjectCategory !== "unknown" ? ` — ${selectedObjectCategory.replace(/_/g, " ")}` : ""}
-                            </span>
-                            <button
-                              onClick={clearObjectSelection}
-                              style={{ fontSize: 12, color: "#888", background: "none", border: "1px solid #EAE4D9", borderRadius: 20, padding: "4px 12px", cursor: "pointer" }}
-                            >
-                              Clear selection
-                            </button>
-                            <button
-                              onClick={() => expandSelection()}
-                              disabled={isExpandingSelection}
-                              style={{ fontSize: 12, color: "#7A6A55", background: "none", border: "1px solid #C4A882", borderRadius: 20, padding: "4px 12px", cursor: isExpandingSelection ? "wait" : "pointer" }}
-                            >
-                              {isExpandingSelection ? "Expanding..." : "Expand selection"}
-                            </button>
-                            {/* TODO: manual brush/refine mask mode for imperfect selections */}
-                          </div>
-                        )}
-
                         {selectionWarning && (
                           <div style={{ marginTop: 8, fontSize: 12, color: "#8A6D3B", background: "#FCF8E3", border: "1px solid #F0E6C8", borderRadius: 4, padding: "8px 12px" }}>
                             {selectionWarning}
                           </div>
                         )}
-                        {selectedObjectUsedFallbackMask && (
-                          <div style={{ marginTop: 6, fontSize: 11, color: "#AAA" }}>
-                            Using bbox fallback mask for this selection.
-                          </div>
-                        )}
 
-                        {/* Selection debug info */}
-                        {selectedObjectMaskUrl && (
-                          <details style={{ marginTop: 8 }}>
-                            <summary style={{ fontSize: 11, color: "#BBB", cursor: "pointer" }}>Selection details</summary>
-                            <pre style={{ fontSize: 10, color: "#999", background: "#FAF8F5", padding: 8, borderRadius: 4, overflow: "auto" }}>
-{JSON.stringify({
-  category: selectedObjectCategory,
-  originalBbox: selectedObjectOriginalBbox,
-  finalBbox: selectedObjectBbox,
-  wasExpanded: selectedObjectWasExpanded,
-  usedFallbackMask: selectedObjectUsedFallbackMask,
-  maskExists: Boolean(selectedObjectMaskUrl),
-  bboxAreaRatioBefore: selectedObjectOriginalBbox && strictImageDims
-    ? ((selectedObjectOriginalBbox.width * selectedObjectOriginalBbox.height) / (strictImageDims.w * strictImageDims.h)).toFixed(4)
-    : null,
-  bboxAreaRatioAfter: selectedObjectBbox && strictImageDims
-    ? ((selectedObjectBbox.width * selectedObjectBbox.height) / (strictImageDims.w * strictImageDims.h)).toFixed(4)
-    : null,
-}, null, 2)}
-                            </pre>
-                          </details>
-                        )}
-
-                        {/* Unknown category — let the user pick manually */}
-                        {selectedObjectMaskUrl && selectedObjectCategory === "unknown" && (
-                          <div style={{ marginTop: 12 }}>
-                            <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>What is this item?</div>
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              {["sofa", "coffee_table", "rug", "lighting", "chair", "dining_table", "decor"].map(cat => (
-                                <button
-                                  key={cat}
-                                  onClick={() => {
-                                    setSelectedObjectCategory(cat);
-                                    // The SAM2 mask may only cover the clicked part (one
-                                    // cushion) — once we know the category, auto-expand
-                                    // the selection if it's implausibly small
-                                    if (
-                                      selectedObjectBbox && strictImageDims &&
-                                      isBboxTooSmallForCategory({ bbox: selectedObjectBbox, category: cat, imageWidth: strictImageDims.w, imageHeight: strictImageDims.h })
-                                    ) {
-                                      expandSelection(cat);
-                                      setSelectionWarning(`Selected area looked too small for a ${cat.replace(/_/g, " ")}, so we expanded it to cover the full object.`);
-                                    }
-                                  }}
+                        {/* Selected object chips */}
+                        {selectedObjects.length > 0 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                            {selectedObjects.map(obj => {
+                              const isActive = obj.id === activeSelectedObjectId;
+                              const hasRepl = selectedReplacements.some(r => r.selectedObjectId === obj.id);
+                              return (
+                                <span
+                                  key={obj.id}
+                                  onClick={() => { setActiveSelectedObjectId(obj.id); setActiveSupplier(null); }}
                                   style={{
-                                    padding: "6px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer",
-                                    background: "#FFF", color: "#666", border: "1px solid #EAE4D9",
+                                    display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+                                    fontSize: 12, padding: "5px 10px", borderRadius: 20,
+                                    background: isActive ? "#1A1A1A" : "#FFF",
+                                    color: isActive ? "#F7F4EF" : "#666",
+                                    border: `1px solid ${isActive ? "#1A1A1A" : "#EAE4D9"}`,
                                   }}
                                 >
-                                  {cat.replace(/_/g, " ")}
-                                </button>
-                              ))}
-                            </div>
+                                  {hasRepl ? "✓ " : ""}{obj.label}
+                                  <span
+                                    onClick={(e) => { e.stopPropagation(); removeSelectedObject(obj.id); }}
+                                    style={{ marginLeft: 2, opacity: 0.7 }}
+                                  >×</span>
+                                </span>
+                              );
+                            })}
+                            <button
+                              onClick={clearObjectSelection}
+                              style={{ fontSize: 12, color: "#888", background: "none", border: "1px solid #EAE4D9", borderRadius: 20, padding: "5px 12px", cursor: "pointer" }}
+                            >
+                              Clear all
+                            </button>
                           </div>
                         )}
 
-                        {/* Replacement options for the detected category */}
-                        {selectedObjectMaskUrl && extractedProducts.length > 0 && (
-                          <div style={{ marginTop: 14 }}>
-                            <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 8 }}>
-                              CHOOSE THE REPLACEMENT
-                            </div>
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              {(() => {
-                                const matching = extractedProducts.filter(p => categoryMatches(p.category, selectedObjectCategory));
-                                const pool = matching.length > 0 ? matching : extractedProducts;
-                                return pool.flatMap(product =>
-                                  (product.options || []).map(opt => {
-                                    const optionKey = `${product.itemName}__${opt.name}`;
-                                    const isSelected = selectedProducts[0] === optionKey && selectedProducts.length === 1;
-                                    return (
+                        {/* Active object: category fix, expand, replacement browsing */}
+                        {activeSelectedObject && (() => {
+                          const obj = activeSelectedObject;
+                          const activeRepl = selectedReplacements.find(r => r.selectedObjectId === obj.id);
+                          const groups = obj.category === "unknown"
+                            ? []
+                            : getSupplierOptionsForObject({ selectedObjectCategory: obj.category, catalog: UAE_FURNITURE_CATALOG });
+                          const supplier = activeSupplier && groups.some(g => g.supplier === activeSupplier)
+                            ? activeSupplier
+                            : groups[0]?.supplier;
+                          const supplierOptions = groups.find(g => g.supplier === supplier)?.options || [];
+
+                          return (
+                            <div style={{ marginTop: 16, padding: 14, background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                                <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em" }}>
+                                  SELECT REPLACEMENT FOR: {obj.label.toUpperCase()}
+                                </div>
+                                <button
+                                  onClick={() => expandSelection(obj.id)}
+                                  disabled={isExpandingSelection}
+                                  style={{ fontSize: 11, color: "#7A6A55", background: "none", border: "1px solid #C4A882", borderRadius: 20, padding: "3px 10px", cursor: isExpandingSelection ? "wait" : "pointer" }}
+                                >
+                                  {isExpandingSelection ? "Expanding..." : "Expand selection"}
+                                </button>
+                              </div>
+
+                              {/* Unknown category — pick manually first */}
+                              {obj.category === "unknown" ? (
+                                <div>
+                                  <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>What is this item?</div>
+                                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                    {["sofa", "coffee_table", "rug", "lighting", "chair", "dining_table", "dining_chair", "armchair", "decor"].map(cat => (
                                       <button
-                                        key={optionKey}
-                                        onClick={() => setSelectedProducts([optionKey])}
+                                        key={cat}
+                                        onClick={() => {
+                                          updateSelectedObject(obj.id, { category: cat, label: labelForCategory(cat, selectedObjects.filter(o => o.id !== obj.id)) });
+                                          if (strictImageDims && isBboxTooSmallForCategory({ bbox: obj.bbox, category: cat, imageWidth: strictImageDims.w, imageHeight: strictImageDims.h })) {
+                                            expandSelection(obj.id, cat);
+                                            setSelectionWarning(`Selected area looked too small for a ${cat.replace(/_/g, " ")}, so we expanded it.`);
+                                          }
+                                        }}
+                                        style={{ padding: "6px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#666", border: "1px solid #EAE4D9" }}
+                                      >
+                                        {cat.replace(/_/g, " ")}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  {/* Supplier tabs */}
+                                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                                    {groups.map(g => (
+                                      <button
+                                        key={g.supplier}
+                                        onClick={() => setActiveSupplier(g.supplier)}
                                         style={{
-                                          padding: "6px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer",
-                                          background: isSelected ? "#1A1A1A" : "#FFF",
-                                          color: isSelected ? "#F7F4EF" : "#666",
-                                          border: `1px solid ${isSelected ? "#1A1A1A" : "#EAE4D9"}`,
+                                          padding: "6px 12px", fontSize: 12, borderRadius: 4, cursor: "pointer",
+                                          background: g.supplier === supplier ? "#1A1A1A" : "#FFF",
+                                          color: g.supplier === supplier ? "#F7F4EF" : "#666",
+                                          border: `1px solid ${g.supplier === supplier ? "#1A1A1A" : "#EAE4D9"}`,
                                         }}
                                       >
-                                        {opt.name} — AED {opt.price}
+                                        {g.supplier}
                                       </button>
-                                    );
-                                  })
-                                );
-                              })()}
-                            </div>
-                            <div style={{ fontSize: 11, color: "#AAA", marginTop: 6 }}>
-                              Precision mode replaces one object with one product at a time.
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Selected replacement preview card */}
-                        {(() => {
-                          const sel = getSelectedReplacementProduct();
-                          if (!sel) return null;
-                          return (
-                            <div style={{ marginTop: 14, background: "#FFF", border: "1px solid #EAE4D9", borderRadius: 4, padding: 14 }}>
-                              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
-                                SELECTED REPLACEMENT
-                              </div>
-                              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                                <img
-                                  src={sel.imageUrl}
-                                  alt={sel.name || "Selected product"}
-                                  onError={(e) => { e.currentTarget.src = getFurnitureImage(sel.category || sel.itemName || "decor"); }}
-                                  style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 4, flexShrink: 0, background: "#F7F3EC" }}
-                                />
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{sel.name}</div>
-                                  <div style={{ fontSize: 11, color: "#888" }}>
-                                    {sel.category}{sel.brand ? ` · ${sel.brand}` : ""}{sel.tier ? ` · ${sel.tier}` : ""}
+                                    ))}
                                   </div>
-                                  <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>AED {sel.price}</div>
-                                </div>
-                                {isValidProductUrl(sel.productUrl) && (
-                                  <a href={sel.productUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none", flexShrink: 0 }}>
-                                    View product →
-                                  </a>
-                                )}
-                              </div>
+
+                                  {/* Product options for active supplier */}
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+                                    {supplierOptions.map(product => {
+                                      const isSelected = activeRepl?.productId === product.id;
+                                      const hasCatalogImage = isValidProductImageUrl({ imageUrl: product.imageUrl, productName: product.name, category: product.category, brand: product.brand });
+                                      const imgSrc = hasCatalogImage ? product.imageUrl : getFurnitureImage(product.category);
+                                      return (
+                                        <div
+                                          key={product.id}
+                                          onClick={() => setReplacementForObject(obj, product)}
+                                          style={{
+                                            padding: 10, borderRadius: 4, cursor: "pointer",
+                                            border: `1px solid ${isSelected ? "#C4A882" : "#EAE4D9"}`,
+                                            background: isSelected ? "#FBF8F4" : "#FFF",
+                                          }}
+                                        >
+                                          <div style={{ position: "relative", marginBottom: 6 }}>
+                                            <img
+                                              src={imgSrc}
+                                              alt={product.name}
+                                              onError={(e) => { e.currentTarget.src = getFurnitureImage(product.category); }}
+                                              style={{ width: "100%", height: 84, objectFit: "cover", borderRadius: 4, display: "block", background: "#F7F3EC" }}
+                                            />
+                                            {!hasCatalogImage && (
+                                              <span style={{ position: "absolute", bottom: 4, left: 4, fontSize: 8, fontFamily: "monospace", color: "#FFF", background: "rgba(0,0,0,0.45)", padding: "2px 5px", borderRadius: 3 }}>
+                                                REFERENCE IMAGE
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div style={{ fontSize: 11, fontWeight: 500, lineHeight: 1.3 }}>{product.name}</div>
+                                          <div style={{ fontSize: 10, color: "#888", marginTop: 2 }}>{product.brand}</div>
+                                          <div style={{ fontSize: 11, color: "#C4A882", fontWeight: 600, marginTop: 3 }}>AED {product.price}</div>
+                                          {isValidProductUrl(product.productUrl) && (
+                                            <a href={product.productUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 10, color: "#C4A882", textDecoration: "none" }}>
+                                              View product →
+                                            </a>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {/* Selected replacement card for active object */}
+                                  {activeRepl && (
+                                    <div style={{ marginTop: 12, background: "#FFF", border: "1px solid #EAE4D9", borderRadius: 4, padding: 12 }}>
+                                      <div className="mono" style={{ fontSize: 9, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 8 }}>SELECTED REPLACEMENT</div>
+                                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                                        <img
+                                          src={isValidProductImageUrl({ imageUrl: activeRepl.imageUrl, productName: activeRepl.productName, category: activeRepl.category, brand: activeRepl.brand }) ? activeRepl.imageUrl : getFurnitureImage(activeRepl.category)}
+                                          alt={activeRepl.productName}
+                                          onError={(e) => { e.currentTarget.src = getFurnitureImage(activeRepl.category); }}
+                                          style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 4, flexShrink: 0, background: "#F7F3EC" }}
+                                        />
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ fontSize: 12, fontWeight: 500 }}>{activeRepl.productName}</div>
+                                          <div style={{ fontSize: 11, color: "#888" }}>{activeRepl.category.replace(/_/g, " ")} · {activeRepl.supplier}</div>
+                                          <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 2 }}>AED {activeRepl.price}</div>
+                                        </div>
+                                        {isValidProductUrl(activeRepl.productUrl) && (
+                                          <a href={activeRepl.productUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#C4A882", textDecoration: "none", flexShrink: 0 }}>View product →</a>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              )}
                             </div>
                           );
                         })()}
+
+                        {/* Bottom: all selected replacements */}
+                        {selectedObjects.length > 0 && (
+                          <div style={{ marginTop: 16 }}>
+                            <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                              YOUR SELECTED REPLACEMENTS
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                              {selectedObjects.map((obj, idx) => {
+                                const repl = selectedReplacements.find(r => r.selectedObjectId === obj.id);
+                                return (
+                                  <div key={obj.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 12px", background: "#FFF", border: "1px solid #EAE4D9", borderRadius: 4 }}>
+                                    <span style={{ fontSize: 12, color: "#999", width: 16 }}>{idx + 1}.</span>
+                                    {repl ? (
+                                      <>
+                                        <img
+                                          src={isValidProductImageUrl({ imageUrl: repl.imageUrl, productName: repl.productName, category: repl.category, brand: repl.brand }) ? repl.imageUrl : getFurnitureImage(repl.category)}
+                                          alt={repl.productName}
+                                          onError={(e) => { e.currentTarget.src = getFurnitureImage(repl.category); }}
+                                          style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 4, flexShrink: 0, background: "#F7F3EC" }}
+                                        />
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ fontSize: 12, color: "#555" }}>
+                                            <strong>{obj.label}</strong> → {repl.productName}
+                                          </div>
+                                          <div style={{ fontSize: 11, color: "#999" }}>{repl.supplier} · AED {repl.price}</div>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div style={{ flex: 1, fontSize: 12, color: "#AAA" }}>
+                                        <strong style={{ color: "#777" }}>{obj.label}</strong> → No replacement selected yet
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
                     {/* Selected products summary */}
-                    {selectedProducts.length > 0 && (
+                    {renderMode === "restyle" && selectedProducts.length > 0 && (
                       <div style={{ background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4, padding: "12px 16px", marginBottom: 16 }}>
                         <div className="mono" style={{ fontSize: 10, color: "#C4A882", marginBottom: 8 }}>PRODUCTS TO RENDER</div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -3161,40 +3314,33 @@ Placement rule: ${p.placementRule}`
                       const activeRender = renderHistory.find(e => e.id === activeRenderId) || renderHistory[renderHistory.length - 1];
                       return (
                         <div className="fade-in">
-                          {/* Per-version result summary */}
+                          {/* Per-version result summary — all applied replacements */}
                           {activeRender.mode === "strict_replace" && (
                             <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
-                              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 6 }}>
-                                STRICT REPLACEMENT: ONLY SELECTED OBJECT EDITED
+                              <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 8 }}>
+                                STRICT REPLACEMENTS APPLIED{activeRender.appliedReplacements?.length ? ` — ${activeRender.appliedReplacements.length}` : ""}
                               </div>
-                              <div style={{ fontSize: 12, color: "#7A6A55" }}>
-                                {activeRender.selectedCategory && activeRender.selectedCategory !== "unknown" ? `${activeRender.selectedCategory.replace(/_/g, " ")} → ` : ""}
-                                {activeRender.selectedProduct?.name}
-                                {activeRender.selectedProduct?.brand ? ` · ${activeRender.selectedProduct.brand}` : ""}
-                                {activeRender.selectedProduct?.price ? ` · AED ${activeRender.selectedProduct.price}` : ""}
-                              </div>
-                              <div style={{ fontSize: 11, color: "#AAA", marginTop: 4 }}>
-                                Precision mode preserves the original room outside the selected object.
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Applied product card for the active version */}
-                          {activeRender.selectedProduct?.name && (
-                            <div style={{ marginBottom: 16, padding: "10px 14px", background: "#FFF", border: "1px solid #EAE4D9", borderRadius: 4, display: "flex", gap: 10, alignItems: "center" }}>
-                              <img
-                                src={activeRender.selectedProduct.imageUrl}
-                                alt={activeRender.selectedProduct.name}
-                                onError={(e) => { e.currentTarget.src = getFurnitureImage(activeRender.selectedProduct?.category || "decor"); }}
-                                style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, flexShrink: 0, background: "#F7F3EC" }}
-                              />
-                              <div>
-                                <div className="mono" style={{ fontSize: 9, color: "#C4A882", letterSpacing: "0.1em" }}>APPLIED PRODUCT</div>
-                                <div style={{ fontSize: 12, color: "#555" }}>
-                                  {activeRender.selectedProduct.name}
-                                  {activeRender.selectedProduct.brand ? ` · ${activeRender.selectedProduct.brand}` : ""}
-                                  {activeRender.selectedProduct.price ? ` · AED ${activeRender.selectedProduct.price}` : ""}
+                              {(activeRender.appliedReplacements && activeRender.appliedReplacements.length > 0
+                                ? activeRender.appliedReplacements
+                                : []).map((r, i) => (
+                                <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}>
+                                  <img
+                                    src={isValidProductImageUrl({ imageUrl: r.imageUrl, productName: r.productName, category: r.category, brand: r.brand }) ? r.imageUrl : getFurnitureImage(r.category)}
+                                    alt={r.productName}
+                                    onError={(e) => { e.currentTarget.src = getFurnitureImage(r.category); }}
+                                    style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 4, flexShrink: 0, background: "#F7F3EC" }}
+                                  />
+                                  <div style={{ fontSize: 12, color: "#7A6A55" }}>
+                                    <strong>{r.objectLabel}</strong> → {r.productName}
+                                    <div style={{ fontSize: 11, color: "#999" }}>{r.supplier} · AED {r.price}</div>
+                                  </div>
                                 </div>
+                              ))}
+                              {(!activeRender.appliedReplacements || activeRender.appliedReplacements.length === 0) && activeRender.selectedProduct?.name && (
+                                <div style={{ fontSize: 12, color: "#7A6A55" }}>{activeRender.selectedProduct.name}</div>
+                              )}
+                              <div style={{ fontSize: 11, color: "#AAA", marginTop: 4 }}>
+                                Precision mode preserves the original room outside the selected objects.
                               </div>
                             </div>
                           )}
