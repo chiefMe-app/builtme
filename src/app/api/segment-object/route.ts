@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { segmentObjectAtPoint } from "@/lib/falStrictEdit";
 import { expandFurnitureBbox, getBboxAreaRatio, isBboxTooSmallForCategory } from "@/lib/expandFurnitureBbox";
 import { createBboxMask } from "@/lib/bboxMask";
+import { refineObjectCategory } from "@/lib/refineObjectCategory";
 
 export const maxDuration = 120;
 
@@ -76,10 +77,12 @@ export async function POST(req: NextRequest) {
     const originalBbox = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
     const maskArea = onCount / (info.width * info.height);
 
-    // 4. Category: SAM2 is class-agnostic, so we rely on the caller's hint.
-    // TODO: classify the masked object (e.g. crop bbox and ask Claude vision)
-    // so the category is detected automatically instead of "unknown".
-    const category = targetCategory || "unknown";
+    // 4. Category: SAM2 is class-agnostic, so we rely on the caller's hint,
+    // then refine using bbox position (e.g. decor high on the wall → wall_decor).
+    // TODO: classify the masked object (e.g. crop bbox and ask Claude vision).
+    const rawCategory = targetCategory || "unknown";
+    const category = refineObjectCategory({ rawCategory, bbox: originalBbox, imageWidth: info.width, imageHeight: info.height });
+    console.log("[segment-object-category]", { rawCategory, refinedCategory: category, bbox: originalBbox, imageWidth: info.width, imageHeight: info.height });
 
     // 5. If the segmented region is implausibly small for a full object of this
     // category (e.g. one sofa cushion), expand the bbox and use a rectangular
@@ -128,6 +131,7 @@ export async function POST(req: NextRequest) {
       bbox,
       originalBbox,
       category,
+      rawCategory,
       maskArea,
       // TODO: SAM2 via this endpoint doesn't expose a confidence score; using a
       // fixed placeholder until we switch to a model that returns one.

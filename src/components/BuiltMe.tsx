@@ -3210,6 +3210,18 @@ Placement rule: ${p.placementRule}`
                                     ))}
                                   </div>
 
+                                  {/* Empty states — never fall back to another category */}
+                                  {groups.length === 0 && (
+                                    <div style={{ fontSize: 12, color: "#AAA", padding: "8px 0" }}>
+                                      No curated products available for {obj.label} yet.
+                                    </div>
+                                  )}
+                                  {groups.length > 0 && supplierOptions.length === 0 && (
+                                    <div style={{ fontSize: 12, color: "#AAA", padding: "8px 0" }}>
+                                      No {obj.label.toLowerCase()} products available for this supplier yet.
+                                    </div>
+                                  )}
+
                                   {/* Product options for active supplier */}
                                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
                                     {supplierOptions.map(product => {

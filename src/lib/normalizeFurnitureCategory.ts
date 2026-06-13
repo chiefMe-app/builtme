@@ -12,12 +12,27 @@ export function normalizeFurnitureCategory(input?: string): string {
   if (value.includes("rug") || value.includes("carpet")) return "rug";
   if (value.includes("light") || value.includes("pendant") || value.includes("lamp")) return "lighting";
   if (value.includes("tv") || value.includes("console") || value.includes("sideboard") || value.includes("media unit")) return "tv_unit";
-  // Wall-mounted decor is distinct from surface decor — keep it from collapsing into generic "decor"
-  if (value.includes("wall art") || value.includes("wall_art") || value.includes("wall hanging") || value.includes("framed")) return "wall_art";
-  if (value.includes("wall decor") || value.includes("wall_decor")) return "wall_decor";
-  if (value.includes("decor") || value.includes("vase") || value.includes("pampas")) return "decor";
+
+  // Wall-mounted categories — keep these from collapsing into generic "decor"
+  if (value.includes("wall sculpture") || value.includes("wall_sculpture")) return "wall_sculpture";
+  if (value.includes("wall panel") || value.includes("wall_panel")) return "wall_panel";
+  if (value.includes("mirror")) return "mirror";
+  if (
+    value.includes("wall art") || value.includes("wall_art") || value.includes("wall hanging") ||
+    value.includes("artwork") || value.includes("framed") || value.includes("canvas") ||
+    value.includes("painting") || value.includes("poster") || value.includes("print") || value === "art"
+  ) return "wall_art";
+  if (value.includes("wall decor") || value.includes("wall_decor") || value.includes("wall decoration")) return "wall_decor";
+
+  // Surface / soft decor — explicitly NOT wall categories
+  if (value.includes("vase") || value.includes("pampas")) return "vase";
+  if (value.includes("tabletop") || value.includes("table decor")) return "tabletop_decor";
+  if (value.includes("cushion") || value.includes("pillow")) return "cushion";
+  if (value.includes("throw")) return "throw";
+  if (value.includes("curtain") || value.includes("blind") || value.includes("drape")) return "curtains";
+  if (value.includes("plant") || value.includes("monstera")) return "plant";
   if (value.includes("art")) return "wall_art";
-  if (value.includes("plant")) return "plant";
+  if (value.includes("decor")) return "decor";
 
   return value.replace(/\s+/g, "_");
 }

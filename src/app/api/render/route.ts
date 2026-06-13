@@ -54,8 +54,21 @@ ABSOLUTE RULES:
 16. Do not change the furniture type unless the selected replacement category explicitly requires it.
 
 The result should look like the same room photo with only the selected object replaced.
-${extra ? `\nAdditional instruction: ${extra}` : ""}
+${wallCategoryInstruction(category)}${extra ? `\nAdditional instruction: ${extra}` : ""}
 `.trim();
+}
+
+// Category-specific guardrails so wall-mounted objects stay on the wall and are
+// never swapped for plants/vases/tabletop/floor decor.
+function wallCategoryInstruction(category: string | null): string {
+  const c = (category || "").toLowerCase();
+  if (c === "mirror") {
+    return "\nReplace only the selected wall mirror. Keep it mounted on the same wall area, same approximate size and position.\n";
+  }
+  if (c === "wall_decor" || c === "wall_art" || c === "wall_panel" || c === "wall_sculpture") {
+    return "\nReplace only the selected wall-mounted decor. Keep it attached to the same wall area, same approximate height, size, and position. Do not replace it with a plant, vase, table object, cushion, or floor decor.\n";
+  }
+  return "";
 }
 
 // Restyle mode prompt: guided whole-room restyle with category-locked product
