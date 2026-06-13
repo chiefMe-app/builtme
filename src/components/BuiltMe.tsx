@@ -766,6 +766,12 @@ export default function BuiltMe() {
 
   // Choose / change the replacement product for one selected object
   const setReplacementForObject = (obj: SelectedObject, product: CatalogProduct) => {
+    // Never store an incompatible pairing (e.g. a dining table → sofa)
+    if (!isCompatibleReplacement(obj.category, product.category)) {
+      setStrictValidationMsg(`${product.name} can't replace a ${obj.category.replace(/_/g, " ")}. Please pick a matching product.`);
+      return;
+    }
+    setStrictValidationMsg(null);
     setSelectedReplacements(prev => {
       const withoutCurrent = prev.filter(r => r.selectedObjectId !== obj.id);
       return [...withoutCurrent, {
@@ -3138,9 +3144,10 @@ Placement rule: ${p.placementRule}`
                         {activeSelectedObject && (() => {
                           const obj = activeSelectedObject;
                           const activeRepl = selectedReplacements.find(r => r.selectedObjectId === obj.id);
-                          const groups = obj.category === "unknown"
+                          const activeCategory = normalizeFurnitureCategory(obj.category);
+                          const groups = activeCategory === "unknown"
                             ? []
-                            : getSupplierOptionsForObject({ selectedObjectCategory: obj.category, catalog: UAE_FURNITURE_CATALOG });
+                            : getSupplierOptionsForObject({ selectedObjectCategory: activeCategory, catalog: UAE_FURNITURE_CATALOG });
                           const supplier = activeSupplier && groups.some(g => g.supplier === activeSupplier)
                             ? activeSupplier
                             : groups[0]?.supplier;
@@ -3166,7 +3173,7 @@ Placement rule: ${p.placementRule}`
                                 <div>
                                   <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>What is this item?</div>
                                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                    {["sofa", "coffee_table", "rug", "lighting", "chair", "dining_table", "dining_chair", "armchair", "decor"].map(cat => (
+                                    {["sofa", "coffee_table", "rug", "lighting", "chair", "dining_table", "dining_chair", "armchair", "wall_art", "decor"].map(cat => (
                                       <button
                                         key={cat}
                                         onClick={() => {

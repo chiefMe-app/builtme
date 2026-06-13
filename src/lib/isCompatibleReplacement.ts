@@ -15,5 +15,9 @@ export function isCompatibleReplacement(objectCategory: string, productCategory:
   const chairLike = new Set(["chair", "dining_chair", "armchair"]);
   if (chairLike.has(o) && chairLike.has(p)) return true;
 
+  // Wall-mounted decor is interchangeable across wall_decor / wall_art
+  const wallLike = new Set(["wall_decor", "wall_art"]);
+  if (wallLike.has(o) && wallLike.has(p)) return true;
+
   return false;
 }

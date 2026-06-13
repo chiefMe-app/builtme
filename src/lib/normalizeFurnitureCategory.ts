@@ -12,7 +12,11 @@ export function normalizeFurnitureCategory(input?: string): string {
   if (value.includes("rug") || value.includes("carpet")) return "rug";
   if (value.includes("light") || value.includes("pendant") || value.includes("lamp")) return "lighting";
   if (value.includes("tv") || value.includes("console") || value.includes("sideboard") || value.includes("media unit")) return "tv_unit";
-  if (value.includes("decor") || value.includes("vase") || value.includes("art") || value.includes("pampas")) return "decor";
+  // Wall-mounted decor is distinct from surface decor — keep it from collapsing into generic "decor"
+  if (value.includes("wall art") || value.includes("wall_art") || value.includes("wall hanging") || value.includes("framed")) return "wall_art";
+  if (value.includes("wall decor") || value.includes("wall_decor")) return "wall_decor";
+  if (value.includes("decor") || value.includes("vase") || value.includes("pampas")) return "decor";
+  if (value.includes("art")) return "wall_art";
   if (value.includes("plant")) return "plant";
 
   return value.replace(/\s+/g, "_");
