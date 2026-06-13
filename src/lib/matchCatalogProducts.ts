@@ -61,7 +61,18 @@ export function matchCatalogProducts({
       p.category === normalizedCategory ||
       (normalizedCategory === "chair" && (p.category === "dining_chair" || p.category === "armchair"))
     );
-    if (pool.length === 0) continue;
+    // No catalog products for this category — return it with empty options
+    // rather than substituting another category (guardrail against e.g.
+    // dining_table silently becoming coffee_table). UI shows "no products yet".
+    if (pool.length === 0) {
+      products.push({
+        category: normalizedCategory,
+        itemName: need.itemName,
+        renderDescription: need.renderDescription,
+        options: [],
+      });
+      continue;
+    }
 
     const styleTags = (need.styleTags || []).map(t => t.toLowerCase());
     const colorTags = (need.colorTags || []).map(t => t.toLowerCase());

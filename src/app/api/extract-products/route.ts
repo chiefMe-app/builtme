@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { matchCatalogProducts, NeededCategory } from "@/lib/matchCatalogProducts";
+import { normalizeFurnitureCategory } from "@/lib/normalizeFurnitureCategory";
 
 export const maxDuration = 120;
 
@@ -12,11 +13,32 @@ interface ExistingAnalysis {
   room?: string;
 }
 
+interface SelectedChangeItem {
+  label?: string;
+  category?: string;
+  normalizedCategory?: string;
+}
+
+// Default generic render descriptions per category — used when categories are
+// driven by the user's selected change items rather than reference parsing
+const CATEGORY_DEFAULTS: Record<string, { itemName: string; renderDescription: string }> = {
+  sofa: { itemName: "Sofa", renderDescription: "comfortable fabric sofa" },
+  coffee_table: { itemName: "Coffee Table", renderDescription: "modern coffee table" },
+  dining_table: { itemName: "Dining Table", renderDescription: "wooden rectangular dining table" },
+  dining_chair: { itemName: "Dining Chairs", renderDescription: "matching dining chairs" },
+  chair: { itemName: "Chair", renderDescription: "accent chair" },
+  armchair: { itemName: "Armchair", renderDescription: "upholstered armchair" },
+  rug: { itemName: "Rug", renderDescription: "area rug" },
+  lighting: { itemName: "Lighting", renderDescription: "ceiling pendant light" },
+  decor: { itemName: "Decor", renderDescription: "decorative accessories" },
+};
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const budget = formData.get("budget") as string;
     const existingAnalysis = JSON.parse((formData.get("existingAnalysis") as string) || "{}") as ExistingAnalysis;
+    const selectedChangeItems = JSON.parse((formData.get("selectedChangeItems") as string) || "[]") as SelectedChangeItem[];
 
     const imageContents: Anthropic.ContentBlockParam[] = [];
     let i = 0;
@@ -32,76 +54,112 @@ export async function POST(req: NextRequest) {
           data: base64,
         },
       });
-      imageContents.push({
-        type: "text",
-        text: `Reference image ${i + 1}:`,
-      });
+      imageContents.push({ type: "text", text: `Reference image ${i + 1}:` });
       i++;
     }
 
-    // The LLM only identifies WHICH product categories are needed and the style
-    // direction. Actual products, prices, links and images come from the
-    // curated catalog — never invented by the model.
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2000,
-      messages: [{
-        role: "user",
-        content: [
-          ...imageContents,
-          {
-            type: "text",
-            text: `Analyse these style reference images and identify which furniture/decor categories are needed to achieve this look.
-
-Room type: ${existingAnalysis.room || "living room"}
-Style: ${existingAnalysis.style || "modern"}
-Budget: ${budget || "mid-range"}
-
-Return ONLY valid JSON:
-{
-  "styleExtracted": "brief style description",
-  "neededCategories": [
-    {
-      "category": "sofa | coffee_table | rug | lighting | decor | dining_table | dining_chair | armchair",
-      "itemName": "generic item name e.g. '3-seat sofa'",
-      "renderDescription": "description for AI render e.g. 'cream linen 3-seat sofa'",
-      "styleTags": ["warm minimal", "coastal", "neutral"],
-      "colorTags": ["cream", "beige", "natural"]
-    }
-  ]
-}
-
-Rules:
-- Max 5 categories, only ones relevant to the room type and visible in the references.
-- Do NOT return product image URLs, product URLs, or specific retail products.
-- Only describe what KIND of product is needed.`
-          }
-        ]
-      }]
-    });
-
-    if (response.stop_reason === "max_tokens") {
-      throw new Error("Category extraction response was truncated (max_tokens) — JSON would be incomplete");
-    }
-
-    const textBlock = response.content.find(
-      (block): block is Anthropic.TextBlock => block.type === "text",
-    );
-    const text = textBlock?.text || "";
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start === -1 || end === -1) throw new Error("No JSON in response");
-    const parsed = JSON.parse(text.slice(start, end + 1));
-
-    // Match needs against the curated catalog (source of truth for products)
-    const neededCategories = (parsed.neededCategories || []) as NeededCategory[];
     const budgetNumber = parseInt((budget || "").replace(/[^\d]/g, ""), 10) || 20000;
+
+    // SOURCE OF TRUTH: if the user selected change items in the initial analysis,
+    // those categories drive the product options. Reference images may only
+    // influence style/colour direction — never the category.
+    const requestedCategories = selectedChangeItems.length
+      ? Array.from(new Set(
+          selectedChangeItems
+            .map(item => normalizeFurnitureCategory(item.normalizedCategory || item.category || item.label || ""))
+            .filter(cat => cat && cat !== "unknown")
+        ))
+      : [];
+
+    let styleExtracted = existingAnalysis.style || "";
+    let styleTags: string[] = [];
+    let colorTags: string[] = [];
+
+    // Ask the model ONLY for style direction (tags), not categories
+    if (imageContents.length > 0) {
+      try {
+        const response = await client.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 500,
+          messages: [{
+            role: "user",
+            content: [
+              ...imageContents,
+              {
+                type: "text",
+                text: `Describe the STYLE direction of these reference images. Do NOT list furniture categories.
+Return ONLY valid JSON:
+{ "styleExtracted": "brief style description", "styleTags": ["warm minimal","coastal"], "colorTags": ["cream","beige","natural"] }`,
+              },
+            ],
+          }],
+        });
+        const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+        const text = textBlock?.text || "";
+        const s = text.indexOf("{"), e = text.lastIndexOf("}");
+        if (s !== -1 && e !== -1) {
+          const parsed = JSON.parse(text.slice(s, e + 1));
+          styleExtracted = parsed.styleExtracted || styleExtracted;
+          styleTags = Array.isArray(parsed.styleTags) ? parsed.styleTags : [];
+          colorTags = Array.isArray(parsed.colorTags) ? parsed.colorTags : [];
+        }
+      } catch (styleErr) {
+        console.error("Style extraction failed (non-fatal):", styleErr);
+      }
+    }
+
+    let neededCategories: NeededCategory[];
+
+    if (requestedCategories.length > 0) {
+      // Category-driven: build needs strictly from the selected change items.
+      // Style/colour tags from references improve matching but cannot change category.
+      neededCategories = requestedCategories.map(cat => {
+        const defaults = CATEGORY_DEFAULTS[cat] || { itemName: cat.replace(/_/g, " "), renderDescription: cat.replace(/_/g, " ") };
+        return { category: cat, itemName: defaults.itemName, renderDescription: defaults.renderDescription, styleTags, colorTags };
+      });
+    } else {
+      // Fallback (no change items selected): let the model infer categories from references
+      neededCategories = [];
+      if (imageContents.length > 0) {
+        try {
+          const response = await client.messages.create({
+            model: "claude-sonnet-4-6",
+            max_tokens: 2000,
+            messages: [{
+              role: "user",
+              content: [
+                ...imageContents,
+                {
+                  type: "text",
+                  text: `Identify which furniture/decor categories are needed for this ${existingAnalysis.room || "living room"}.
+Return ONLY valid JSON:
+{ "neededCategories": [ { "category": "sofa|coffee_table|rug|lighting|decor|dining_table|dining_chair|armchair", "itemName": "...", "renderDescription": "...", "styleTags": [], "colorTags": [] } ] }
+Max 5 categories. Do NOT return product URLs or images.`,
+                },
+              ],
+            }],
+          });
+          const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+          const text = textBlock?.text || "";
+          const s = text.indexOf("{"), e = text.lastIndexOf("}");
+          if (s !== -1 && e !== -1) {
+            neededCategories = (JSON.parse(text.slice(s, e + 1)).neededCategories || []) as NeededCategory[];
+          }
+        } catch (catErr) {
+          console.error("Category inference failed (non-fatal):", catErr);
+        }
+      }
+    }
+
     const products = matchCatalogProducts({ neededCategories, budget: budgetNumber });
 
-    return NextResponse.json({
-      styleExtracted: parsed.styleExtracted || "",
-      products,
+    console.log("[extract-products]", {
+      selectedChangeItems,
+      requestedCategories,
+      returnedCategories: products.map(p => p.category),
     });
+
+    return NextResponse.json({ styleExtracted, products });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Failed to extract products" }, { status: 500 });

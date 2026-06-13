@@ -327,6 +327,19 @@ const CHANGE_OPTIONS = [
   { id: "existing_only", label: "Rearrange existing only", icon: "↔️" },
 ];
 
+// Maps a "what to change" pill id to the catalog product categories it implies.
+// Pills that aren't replaceable products (paint, curtains, layout) map to none.
+const CHANGE_OPTION_TO_CATEGORIES: Record<string, { label: string; category: string }[]> = {
+  sofa: [{ label: "Sofa", category: "sofa" }],
+  dining: [{ label: "Dining Table", category: "dining_table" }, { label: "Dining Chairs", category: "dining_chair" }],
+  lighting: [{ label: "Lighting", category: "lighting" }],
+  rug: [{ label: "Rug", category: "rug" }],
+  coffee_table: [{ label: "Coffee Table", category: "coffee_table" }],
+  tv_unit: [{ label: "TV Unit", category: "tv_unit" }],
+  decor: [{ label: "Decor", category: "decor" }],
+  // wall_colour, wallpaper, curtains, layout, existing_only → no catalog products
+};
+
 // Safe local category fallback images — every image visually verified.
 // Used whenever a product has no validated real product image.
 const FALLBACK_PRODUCT_IMAGES: Record<string, string> = {
@@ -677,6 +690,11 @@ export default function BuiltMe() {
     setScreen("results");
   };
 
+  // The user's selected "items to change" → the catalog categories that drive
+  // AI Render product options (reference images only affect style, not category)
+  const selectedChangeItems = whatToChange.flatMap(id => CHANGE_OPTION_TO_CATEGORIES[id] || [])
+    .map(c => ({ label: c.label, category: c.category, normalizedCategory: c.category }));
+
   const extractProductsFromReferences = async () => {
     if (savedReferencePhotos.length === 0) return;
     setExtractingProducts(true);
@@ -693,6 +711,9 @@ export default function BuiltMe() {
         colors: results?.styleProfile?.colorPalette,
         room: results?.spaceAnalysis?.roomType,
       }));
+      // Source of truth: the user's selected change items drive the product
+      // categories. Reference images only influence style/colour.
+      formData.append("selectedChangeItems", JSON.stringify(selectedChangeItems));
 
       const res = await fetch("/api/extract-products", {
         method: "POST",
@@ -2701,17 +2722,53 @@ Placement rule: ${p.placementRule}`
                             </div>
                           ))}
                         </div>
+                        {/* Items to change — drives which product categories appear */}
+                        <div style={{ marginBottom: 20 }}>
+                          <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                            WHAT DO YOU WANT TO CHANGE?
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {CHANGE_OPTIONS.filter(o => (CHANGE_OPTION_TO_CATEGORIES[o.id] || []).length > 0).map(opt => (
+                              <button
+                                key={opt.id}
+                                onClick={() => setWhatToChange(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id])}
+                                style={{
+                                  padding: "8px 14px",
+                                  background: whatToChange.includes(opt.id) ? "#1A1A1A" : "#FFF",
+                                  color: whatToChange.includes(opt.id) ? "#F7F4EF" : "#666",
+                                  border: `1px solid ${whatToChange.includes(opt.id) ? "#1A1A1A" : "#EAE4D9"}`,
+                                  borderRadius: 20, cursor: "pointer",
+                                  fontSize: 12, fontFamily: "'DM Sans', sans-serif",
+                                }}
+                              >
+                                {opt.icon} {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                          {selectedChangeItems.length > 0 && (
+                            <div style={{ fontSize: 12, color: "#AAA", marginTop: 8 }}>
+                              Products will be shown for: {selectedChangeItems.map(c => c.label).join(", ")}
+                            </div>
+                          )}
+                        </div>
+
                         <button
                           onClick={extractProductsFromReferences}
-                          disabled={extractingProducts}
+                          disabled={extractingProducts || selectedChangeItems.length === 0}
                           style={{
                             width: "100%", padding: "14px 0",
-                            background: "#1A1A1A", color: "#F7F4EF",
-                            border: "none", borderRadius: 4, cursor: "pointer",
+                            background: selectedChangeItems.length === 0 ? "#EEE" : "#1A1A1A",
+                            color: selectedChangeItems.length === 0 ? "#AAA" : "#F7F4EF",
+                            border: "none", borderRadius: 4,
+                            cursor: extractingProducts || selectedChangeItems.length === 0 ? "not-allowed" : "pointer",
                             fontSize: 14, fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
                           }}
                         >
-                          {extractingProducts ? "Analysing your style references..." : "Find real products from these references →"}
+                          {extractingProducts
+                            ? "Finding products for your selected changes..."
+                            : selectedChangeItems.length === 0
+                              ? "Select what you want to change first"
+                              : "Find products for my selected changes →"}
                         </button>
                       </div>
                     ) : (
@@ -2741,8 +2798,19 @@ Placement rule: ${p.placementRule}`
                 {renderStep === "products" && (
                   <div>
                     <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
-                      REAL PRODUCTS FOUND IN DUBAI
+                      PRODUCTS FOR YOUR SELECTED CHANGES
                     </div>
+
+                    {selectedChangeItems.length > 0 && (
+                      <div style={{ marginBottom: 16, padding: "10px 14px", background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
+                        <div className="mono" style={{ fontSize: 9, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 6 }}>SELECTED CHANGES</div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {selectedChangeItems.map((c, i) => (
+                            <span key={i} style={{ fontSize: 12, background: "#F0EBE2", color: "#7A6A55", padding: "4px 10px", borderRadius: 20 }}>{c.label}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {extractedProducts.length > 0 ? (
                       <div>
@@ -2753,8 +2821,13 @@ Placement rule: ${p.placementRule}`
                           {extractedProducts.map((product, i) => (
                             <div key={i} style={{ marginBottom: 20 }}>
                               <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
-                                {product.category?.toUpperCase()} — CHOOSE ONE
+                                {(product.itemName || product.category)?.toUpperCase()} — {product.options?.length ? "CHOOSE ONE" : ""}
                               </div>
+                              {(!product.options || product.options.length === 0) && (
+                                <div style={{ fontSize: 12, color: "#AAA", padding: "10px 0" }}>
+                                  No curated products available yet for this category.
+                                </div>
+                              )}
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                                 {product.options?.map((opt, j) => {
                                   const optionKey = `${product.itemName}__${opt.name}`;
