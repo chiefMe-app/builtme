@@ -151,7 +151,7 @@ Max 5 categories. Do NOT return product URLs or images.`,
       }
     }
 
-    const products = matchCatalogProducts({ neededCategories, budget: budgetNumber });
+    const products = await matchCatalogProducts({ neededCategories, budget: budgetNumber });
 
     console.log("[extract-products]", {
       selectedChangeItems,

@@ -1,5 +1,6 @@
 import { UAE_FURNITURE_CATALOG, CatalogProduct } from "@/data/uaeFurnitureCatalog";
 import { normalizeFurnitureCategory } from "@/lib/normalizeFurnitureCategory";
+import { searchProductsOnline, isOnlineSearchConfigured } from "@/lib/productSearchProvider";
 
 export interface NeededCategory {
   category: string;
@@ -41,18 +42,21 @@ function tagScore(product: CatalogProduct, styleTags: string[], colorTags: strin
 }
 
 /**
- * Matches LLM-identified category needs against the curated catalog.
- * Returns exactly one budget / one mid / one premium option per category,
- * preferring products whose style/colour tags match the requested direction.
+ * Matches LLM-identified category needs against the curated catalog, then
+ * enriches with live online product search (SerpApi Google Shopping) when the
+ * catalog has fewer than 3 options for a category. Online results carry real
+ * product images and links — no generic fallback images are ever injected here.
+ * Falls back to catalog-only when online search is not configured.
  */
-export function matchCatalogProducts({
+export async function matchCatalogProducts({
   neededCategories,
   budget,
 }: {
   neededCategories: NeededCategory[];
   budget: number;
-}): MatchedProduct[] {
+}): Promise<MatchedProduct[]> {
   const products: MatchedProduct[] = [];
+  const onlineEnabled = isOnlineSearchConfigured();
 
   for (const need of neededCategories.slice(0, 5)) {
     const normalizedCategory = normalizeFurnitureCategory(need.category);
@@ -61,15 +65,36 @@ export function matchCatalogProducts({
       p.category === normalizedCategory ||
       (normalizedCategory === "chair" && (p.category === "dining_chair" || p.category === "armchair"))
     );
-    // No catalog products for this category — return it with empty options
-    // rather than substituting another category (guardrail against e.g.
-    // dining_table silently becoming coffee_table). UI shows "no products yet".
+    // No catalog products for this category — try online search before giving
+    // up, but never substitute another category (guardrail against e.g.
+    // dining_table silently becoming coffee_table).
     if (pool.length === 0) {
+      const onlineOptions: MatchedOption[] = [];
+      if (onlineEnabled) {
+        try {
+          const online = await searchProductsOnline({
+            category: normalizedCategory,
+            styleTags: need.styleTags,
+            colorTags: need.colorTags,
+            budget,
+            suppliers: ["IKEA", "West Elm", "Pottery Barn", "Home Centre"],
+          });
+          for (const o of online.slice(0, 5)) {
+            onlineOptions.push({
+              id: o.id, name: o.name, brand: o.brand,
+              price: o.price !== null ? String(o.price) : "Price unavailable",
+              tier: o.tier, imageUrl: o.imageUrl, productUrl: o.productUrl, renderDescription: o.renderDescription,
+            });
+          }
+        } catch (err) {
+          console.error("Online search failed (non-fatal):", err);
+        }
+      }
       products.push({
         category: normalizedCategory,
         itemName: need.itemName,
         renderDescription: need.renderDescription,
-        options: [],
+        options: onlineOptions,
       });
       continue;
     }
@@ -98,6 +123,35 @@ export function matchCatalogProducts({
           productUrl: best.productUrl,
           renderDescription: best.renderDescription,
         });
+      }
+    }
+
+    // Enrich with online search when the catalog is thin (<3 options)
+    if (onlineEnabled && options.length < 3) {
+      try {
+        const online = await searchProductsOnline({
+          category: normalizedCategory,
+          styleTags: need.styleTags,
+          colorTags: need.colorTags,
+          budget,
+          suppliers: ["IKEA", "West Elm", "Pottery Barn", "Home Centre"],
+        });
+        for (const o of online) {
+          if (options.length >= 5) break;
+          if (options.some(existing => existing.name === o.name)) continue;
+          options.push({
+            id: o.id,
+            name: o.name,
+            brand: o.brand,
+            price: o.price !== null ? String(o.price) : "Price unavailable",
+            tier: o.tier,
+            imageUrl: o.imageUrl,
+            productUrl: o.productUrl,
+            renderDescription: o.renderDescription,
+          });
+        }
+      } catch (err) {
+        console.error("Online enrichment failed (non-fatal):", err);
       }
     }
 

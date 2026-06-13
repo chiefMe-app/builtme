@@ -24,6 +24,13 @@ const TRUSTED_PRODUCT_DOMAINS = [
   "potterybarn.ae",
   "theone.com",
   "homesrus.ae",
+  // Google Shopping / SerpApi product thumbnail CDNs (results are pre-validated
+  // server-side by validateShoppingProduct before reaching the UI)
+  "gstatic.com",
+  "googleusercontent.com",
+  "serpapi.com",
+  "shopping.google.com",
+  "google.com",
 ];
 
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"];
@@ -52,6 +59,13 @@ export function isValidProductImageUrl({
 }): boolean {
   if (!imageUrl || !imageUrl.startsWith("https://")) return false;
   if (!isTrustedHost(imageUrl)) return false;
+
+  // Google Shopping / SerpApi thumbnail CDNs use extensionless paths
+  // (e.g. /shopping?q=tbn:...) — already pre-validated server-side, so accept.
+  const host = (() => { try { return new URL(imageUrl).hostname.toLowerCase(); } catch { return ""; } })();
+  if (["gstatic.com", "googleusercontent.com", "serpapi.com"].some(d => host === d || host.endsWith(`.${d}`))) {
+    return true;
+  }
 
   // Likely a product image: direct image file, or a known image CDN path
   const path = (() => {

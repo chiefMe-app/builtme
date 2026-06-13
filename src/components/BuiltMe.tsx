@@ -143,6 +143,20 @@ interface RenderHistoryEntry {
   promptExtra?: string;
 }
 
+// A real product returned by the online product-search API (SerpApi)
+interface OnlineProduct {
+  id: string;
+  category: string;
+  name: string;
+  supplier: string;
+  brand: string;
+  price: number | null;
+  imageUrl: string;
+  productUrl: string;
+  tier: string;
+  renderDescription: string;
+}
+
 // A furniture object the user has tapped/segmented in the room photo
 interface SelectedObject {
   id: string;
@@ -452,6 +466,9 @@ export default function BuiltMe() {
   const [activeSupplier, setActiveSupplier] = useState<string | null>(null);
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
   const [isExpandingSelection, setIsExpandingSelection] = useState(false);
+  // Live online product search (SerpApi) results, keyed by normalized category
+  const [onlineByCategory, setOnlineByCategory] = useState<Record<string, OnlineProduct[]>>({});
+  const [onlineSearchState, setOnlineSearchState] = useState<"idle" | "loading" | "done" | "unconfigured">("idle");
   const [isSegmentingObject, setIsSegmentingObject] = useState(false);
   const [segmentError, setSegmentError] = useState<string | null>(null);
   const [strictImageUrl, setStrictImageUrl] = useState<string | null>(null);
@@ -731,6 +748,34 @@ export default function BuiltMe() {
   };
 
   const activeSelectedObject = selectedObjects.find(o => o.id === activeSelectedObjectId) || null;
+  const activeObjectCategory = activeSelectedObject ? normalizeFurnitureCategory(activeSelectedObject.category) : null;
+
+  // Fetch live online products for the active object's category (cached per category)
+  useEffect(() => {
+    if (!activeObjectCategory || activeObjectCategory === "unknown") return;
+    if (onlineByCategory[activeObjectCategory]) { setOnlineSearchState("done"); return; }
+    let alive = true;
+    setOnlineSearchState("loading");
+    fetch("/api/search-products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        category: activeObjectCategory,
+        styleTags: results?.styleProfile?.dominantStyle ? [results.styleProfile.dominantStyle] : [],
+        budget: parseInt((budget || "").replace(/[^\d]/g, ""), 10) || undefined,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (!alive) return;
+        if (data.configured === false) { setOnlineSearchState("unconfigured"); return; }
+        setOnlineByCategory(prev => ({ ...prev, [activeObjectCategory]: data.products || [] }));
+        setOnlineSearchState("done");
+      })
+      .catch(() => { if (alive) setOnlineSearchState("done"); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeObjectCategory]);
 
   // Human label for a category, numbered when the same category repeats
   // (e.g. "Chair 1", "Chair 2")
@@ -3145,9 +3190,35 @@ Placement rule: ${p.placementRule}`
                           const obj = activeSelectedObject;
                           const activeRepl = selectedReplacements.find(r => r.selectedObjectId === obj.id);
                           const activeCategory = normalizeFurnitureCategory(obj.category);
-                          const groups = activeCategory === "unknown"
+                          const catalogGroups = activeCategory === "unknown"
                             ? []
                             : getSupplierOptionsForObject({ selectedObjectCategory: activeCategory, catalog: UAE_FURNITURE_CATALOG });
+
+                          // Merge live online products (real images + links) into the
+                          // supplier groups for this category
+                          const groupMap = new Map<string, CatalogProduct[]>();
+                          for (const g of catalogGroups) groupMap.set(g.supplier, [...g.options]);
+                          for (const op of (onlineByCategory[activeCategory] || [])) {
+                            const asCatalog = {
+                              id: op.id,
+                              category: activeCategory as CatalogProduct["category"],
+                              name: op.name,
+                              brand: op.brand,
+                              supplier: op.supplier,
+                              price: op.price ?? 0,
+                              currency: "AED" as const,
+                              tier: (op.tier as CatalogProduct["tier"]) || "mid",
+                              imageUrl: op.imageUrl,
+                              productUrl: op.productUrl,
+                              renderDescription: op.renderDescription,
+                              styleTags: [],
+                              colorTags: [],
+                            };
+                            const list = groupMap.get(op.supplier) || [];
+                            if (!list.some(p => p.id === op.id)) list.push(asCatalog);
+                            groupMap.set(op.supplier, list);
+                          }
+                          const groups = Array.from(groupMap.entries()).map(([supplier, options]) => ({ supplier, options }));
                           const supplier = activeSupplier && groups.some(g => g.supplier === activeSupplier)
                             ? activeSupplier
                             : groups[0]?.supplier;
@@ -3167,6 +3238,13 @@ Placement rule: ${p.placementRule}`
                                   {isExpandingSelection ? "Expanding..." : "Expand selection"}
                                 </button>
                               </div>
+                              {obj.category !== "unknown" && (
+                                <div style={{ fontSize: 10, color: "#AAA", marginBottom: 10 }}>
+                                  {onlineSearchState === "loading" ? "Finding real products online…"
+                                    : onlineSearchState === "unconfigured" ? "Using curated catalog only"
+                                    : (onlineByCategory[activeCategory]?.length ? "🟢 Live product search" : "Using curated catalog only")}
+                                </div>
+                              )}
 
                               {/* Unknown category — pick manually first */}
                               {obj.category === "unknown" ? (
