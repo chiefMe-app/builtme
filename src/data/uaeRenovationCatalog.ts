@@ -34,6 +34,13 @@ export type RenovationCatalogItem = {
   renderDescription: string;
   styleTags: string[];
   colorTags: string[];
+  // Material swatch / finish preview (optional — MaterialSwatch infers a
+  // sensible default from category + name + colorTags when omitted)
+  swatchType?: "color" | "gradient" | "pattern" | "image";
+  swatchColor?: string;
+  swatchGradient?: string;
+  swatchPattern?: "marble" | "wood" | "terrazzo" | "zellige" | "subway_tile" | "stone" | "concrete" | "brass" | "matte_black" | "chrome";
+  swatchImageUrl?: string;
 };
 
 const amazon = (q: string) => `https://www.amazon.ae/s?k=${encodeURIComponent(q)}`;

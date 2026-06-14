@@ -12,6 +12,7 @@ import { UAE_FURNITURE_CATALOG, CatalogProduct } from "@/data/uaeFurnitureCatalo
 import { getSupplierOptionsForObject } from "@/lib/getSupplierOptionsForObject";
 import { isCompatibleReplacement } from "@/lib/isCompatibleReplacement";
 import { runSequentialStrictReplacements, StrictReplacementStep } from "@/lib/runSequentialStrictReplacements";
+import MaterialSwatch from "@/components/MaterialSwatch";
 import type { User } from "@supabase/supabase-js";
 
 interface ColorSwatch {
@@ -107,6 +108,7 @@ interface ExtractedProductOption {
   brand: string;
   price: string;
   tier: string;
+  unit?: string;
   productUrl?: string;
   imageUrl?: string;
   renderDescription?: string;
@@ -2940,7 +2942,9 @@ Placement rule: ${p.placementRule}`
                     {extractedProducts.length > 0 ? (
                       <div>
                         <p style={{ fontSize: 13, color: "#888", marginBottom: 16, fontWeight: 300 }}>
-                          Select which products to include in your render. These will be placed in your room.
+                          {isMinorRenovation
+                            ? "Choose the finishes you want to preview. These will be applied to the selected surfaces in your render."
+                            : "Select which products to include in your render. These will be placed in your room."}
                         </p>
                         <div style={{ marginBottom: 20 }}>
                           {extractedProducts.map((product, i) => (
@@ -2985,24 +2989,35 @@ Placement rule: ${p.placementRule}`
                                         transition: "all 0.2s",
                                       }}
                                     >
-                                      <div style={{ position: "relative", marginBottom: 8 }}>
-                                        <img
-                                          src={imageSrc}
-                                          alt={opt.name}
-                                          onError={(e) => {
-                                            e.currentTarget.src = getFurnitureImage(product.category || product.itemName);
-                                          }}
-                                          style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, display: "block", background: "#F7F3EC" }}
-                                        />
-                                        {!hasCatalogImage && (
-                                          <span style={{ position: "absolute", bottom: 4, left: 4, fontSize: 8, fontFamily: "monospace", letterSpacing: "0.05em", color: "#FFF", background: "rgba(0,0,0,0.45)", padding: "2px 6px", borderRadius: 3 }}>
-                                            REFERENCE IMAGE
-                                          </span>
+                                      <div style={{ marginBottom: 8 }}>
+                                        {isMinorRenovation ? (
+                                          // Material finish swatch — never a generic room photo
+                                          <div style={{ height: 90 }}>
+                                            <MaterialSwatch item={{ category: product.category, name: opt.name, colorTags: [] }} size="large" />
+                                          </div>
+                                        ) : (
+                                          <div style={{ position: "relative" }}>
+                                            <img
+                                              src={imageSrc}
+                                              alt={opt.name}
+                                              onError={(e) => {
+                                                e.currentTarget.src = getFurnitureImage(product.category || product.itemName);
+                                              }}
+                                              style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 4, display: "block", background: "#F7F3EC" }}
+                                            />
+                                            {!hasCatalogImage && (
+                                              <span style={{ position: "absolute", bottom: 4, left: 4, fontSize: 8, fontFamily: "monospace", letterSpacing: "0.05em", color: "#FFF", background: "rgba(0,0,0,0.45)", padding: "2px 6px", borderRadius: 3 }}>
+                                                REFERENCE IMAGE
+                                              </span>
+                                            )}
+                                          </div>
                                         )}
                                       </div>
                                       <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 2 }}>{opt.name}</div>
                                       <div style={{ fontSize: 11, color: "#888" }}>{opt.brand}</div>
-                                      <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>AED {opt.price}</div>
+                                      <div style={{ fontSize: 12, color: "#C4A882", fontWeight: 600, marginTop: 4 }}>
+                                        {opt.price === "Price unavailable" ? "Price unavailable" : `AED ${opt.price}`}{isMinorRenovation && opt.unit ? ` / ${opt.unit.replace("per ", "")}` : ""}
+                                      </div>
                                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
                                         <span style={{ fontSize: 9, fontFamily: "monospace", color: "#AAA", textTransform: "uppercase" }}>{opt.tier}</span>
                                         {isValidProductUrl(opt.productUrl) && (
@@ -3036,7 +3051,7 @@ Placement rule: ${p.placementRule}`
                           }}
                         >
                           {isMinorRenovation
-                            ? `Apply ${selectedProducts.length} material${selectedProducts.length !== 1 ? "s" : ""} to render →`
+                            ? `Apply finishes to render →`
                             : `Apply ${selectedProducts.length} product${selectedProducts.length !== 1 ? "s" : ""} to render →`}
                         </button>
                       </div>
@@ -3490,7 +3505,36 @@ Placement rule: ${p.placementRule}`
                     )}
 
                     {/* Selected products summary */}
-                    {renderMode === "restyle" && selectedProducts.length > 0 && (
+                    {/* Minor renovation: selected finishes with mini swatches */}
+                    {isMinorRenovation && selectedProducts.length > 0 && (
+                      <div style={{ background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4, padding: "12px 16px", marginBottom: 16 }}>
+                        <div className="mono" style={{ fontSize: 10, color: "#C4A882", marginBottom: 8 }}>YOUR SELECTED FINISHES</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {selectedProducts.map((key, i) => {
+                            const [itemName, optionName] = key.split("__");
+                            const product = extractedProducts.find(p => p.itemName === itemName);
+                            const option = product?.options?.find(o => o.name === optionName);
+                            if (!product || !option) return null;
+                            return (
+                              <div key={i} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                                <span style={{ fontSize: 12, color: "#999", width: 14 }}>{i + 1}.</span>
+                                <div style={{ width: 36, flexShrink: 0 }}>
+                                  <MaterialSwatch item={{ category: product.category, name: option.name, colorTags: [] }} size="small" />
+                                </div>
+                                <div style={{ fontSize: 12, color: "#7A6A55" }}>
+                                  <strong>{product.itemName}</strong> → {option.name}
+                                  <div style={{ fontSize: 11, color: "#999" }}>
+                                    {option.brand}{option.price === "Price unavailable" ? "" : ` · AED ${option.price}`}{option.unit ? ` / ${option.unit.replace("per ", "")}` : ""}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {renderMode === "restyle" && !isMinorRenovation && selectedProducts.length > 0 && (
                       <div style={{ background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4, padding: "12px 16px", marginBottom: 16 }}>
                         <div className="mono" style={{ fontSize: 10, color: "#C4A882", marginBottom: 8 }}>PRODUCTS TO RENDER</div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
