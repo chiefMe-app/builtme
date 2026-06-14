@@ -4,6 +4,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { submitStrictFill } from "@/lib/falStrictEdit";
 import { setStrictJob } from "@/lib/strictJobs";
 import { buildMinorRenovationPrompt, SelectedFinish } from "@/lib/buildMinorRenovationPrompt";
+import { mapFinishesToSurfaces } from "@/lib/mapFinishesToSurfaces";
+import { runSequentialSurfaceEdits } from "@/lib/runSequentialSurfaceEdits";
+import { isMaskEditConfigured } from "@/lib/falStrictEdit";
+import type { SelectedSurface } from "@/lib/renovationSurfaceCategories";
 
 export const maxDuration = 300;
 
@@ -181,7 +185,7 @@ export async function POST(req: NextRequest) {
     const renderPromptExtra = (formData.get("renderPromptExtra") as string) || "";
     const isMinorRenovation = (formData.get("isMinorRenovation") as string) === "true";
     const selectedFinishes = JSON.parse((formData.get("selectedFinishes") as string) || "[]") as SelectedFinish[];
-    const selectedSurfaces = JSON.parse((formData.get("selectedSurfaces") as string) || "[]");
+    const selectedSurfaces = JSON.parse((formData.get("selectedSurfaces") as string) || "[]") as SelectedSurface[];
     const inputImageUrl = formData.get("imageUrl") as string | null;
     const imageFile = formData.get("image") as File | null;
 
@@ -230,6 +234,49 @@ export async function POST(req: NextRequest) {
         .getPublicUrl(fileName);
 
       imageUrl = urlData.publicUrl;
+    }
+
+    // Minor renovation with selected surfaces → sequential masked surface edits.
+    // Each finish is applied inside its own surface mask and composited so
+    // everything outside the mask is preserved.
+    if (isMinorRenovation && selectedSurfaces.length > 0) {
+      const { edits, warnings } = mapFinishesToSurfaces({ selectedFinishes, selectedSurfaces });
+      console.log("[minor-surface-edits]", {
+        selectedFinishesCount: selectedFinishes.length,
+        selectedSurfacesCount: selectedSurfaces.length,
+        edits: edits.map(e => ({ surfaceCategory: e.surfaceCategory, finishCategory: e.finishCategory, finishName: e.finishName })),
+        warnings,
+      });
+
+      if (edits.length > 0) {
+        if (!isMaskEditConfigured()) {
+          return NextResponse.json({ error: "Mask-based surface editing provider is not configured." }, { status: 500 });
+        }
+        const uploadImage = async (buf: Buffer): Promise<string> => {
+          const fileName = `surface-render-${Date.now()}-${Math.round(Math.random() * 1e4)}.jpg`;
+          const { error } = await supabase.storage.from("builtme-uploads").upload(fileName, buf, { contentType: "image/jpeg", upsert: true });
+          if (error) throw new Error(`Composite upload failed: ${error.message}`);
+          return supabase.storage.from("builtme-uploads").getPublicUrl(fileName).data.publicUrl;
+        };
+
+        try {
+          const { finalImageUrl, appliedEdits, warnings: runWarnings } = await runSequentialSurfaceEdits({ baseImageUrl: imageUrl, edits, uploadImage });
+          if (appliedEdits.length === 0) {
+            return NextResponse.json({ error: "Surface edits failed", warnings: [...warnings, ...runWarnings] }, { status: 500 });
+          }
+          return NextResponse.json({
+            status: "succeeded",
+            images: [finalImageUrl],
+            provider: "minor-surface",
+            surfaceEdits: appliedEdits.map(e => ({ surfaceLabel: e.surfaceLabel, finishName: e.finishName, finishCategory: e.finishCategory })),
+            warnings: [...warnings, ...runWarnings],
+          });
+        } catch (surfErr) {
+          console.error("Surface edit run error:", surfErr);
+          return NextResponse.json({ error: surfErr instanceof Error ? surfErr.message : "Surface edits failed" }, { status: 500 });
+        }
+      }
+      // No mappable edits — fall through to whole-image prompt render below
     }
 
     // Configure FAL client

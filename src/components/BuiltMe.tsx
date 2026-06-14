@@ -486,6 +486,8 @@ export default function BuiltMe() {
   const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [isSelectingSurface, setIsSelectingSurface] = useState(false);
   const [surfaceSelectionError, setSurfaceSelectionError] = useState<string | null>(null);
+  const [surfaceEditsApplied, setSurfaceEditsApplied] = useState<{ surfaceLabel: string; finishName: string }[]>([]);
+  const [surfaceRenderWarnings, setSurfaceRenderWarnings] = useState<string[]>([]);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -745,6 +747,17 @@ export default function BuiltMe() {
     setSelectedSurfaces(prev => prev.filter(s => s.id !== id));
     setActiveSurfaceId(prev => (prev === id ? null : prev));
   };
+
+  // Surface labels that a selected finish needs but the user hasn't placed yet
+  const minorMissingSurfaceLabels = Array.from(new Set(
+    selectedProducts.map(key => {
+      const [itemName] = key.split("__");
+      const product = extractedProducts.find(p => p.itemName === itemName);
+      const surfCat = mapRenovationActionToSurfaceCategory(product?.category || itemName);
+      if (surfCat === "unknown") return null;
+      return selectedSurfaces.some(s => s.category === surfCat) ? null : getSurfaceLabel(surfCat);
+    }).filter((l): l is string => Boolean(l))
+  ));
 
   // Click the photo to select a surface region for the active surface category
   const handleSurfaceClick = async (e: React.MouseEvent<HTMLImageElement>) => {
@@ -1248,6 +1261,52 @@ export default function BuiltMe() {
         };
       });
       console.log("[minor-render-selected-finishes]", selectedFinishes);
+      setSurfaceEditsApplied([]);
+      setSurfaceRenderWarnings([]);
+
+      // Surface-mask mode: when surfaces are selected, render the selected photo
+      // with sequential masked edits (route returns the final image synchronously).
+      if (selectedSurfaces.length > 0) {
+        const photo = savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0];
+        const fd = new FormData();
+        if (strictImageUrl) fd.append("imageUrl", strictImageUrl);
+        else fd.append("image", photo);
+        fd.append("isMinorRenovation", "true");
+        fd.append("selectedFinishes", JSON.stringify(selectedFinishes));
+        fd.append("selectedSurfaces", JSON.stringify(selectedSurfaces));
+        fd.append("renderPromptExtra", renderPromptExtra || "");
+        try {
+          const res = await fetch("/api/render", { method: "POST", body: fd });
+          const data = await res.json();
+          if (data.error || !data.images?.length) {
+            setStrictValidationMsg(data.error || "Surface render failed. Please try again.");
+            if (Array.isArray(data.warnings)) setSurfaceRenderWarnings(data.warnings);
+          } else {
+            let url: string = data.images[0];
+            try {
+              const saveRes = await fetch("/api/save-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+              const saveData = await saveRes.json();
+              if (saveData.permanentUrl) url = saveData.permanentUrl;
+            } catch { /* keep transient url */ }
+            setSurfaceEditsApplied(data.surfaceEdits || []);
+            setSurfaceRenderWarnings(data.warnings || []);
+            setAllRenders([{ photoIndex: selectedRenderPhoto, url }]);
+            setRenders([url]);
+            appendRenderToHistory({ mode: "restyle", beforeImage: URL.createObjectURL(photo), afterImage: url, angleLabel: `Angle ${selectedRenderPhoto + 1}`, selectedProduct: getSelectedReplacementProduct(), promptExtra: renderPromptExtra || "" });
+            localStorage.setItem("builtme_renders", JSON.stringify([url]));
+            if (savedProjectId) {
+              try { await supabase.from("builtme_projects").update({ renders: [url] }).eq("id", savedProjectId); } catch (e) { console.error(e); }
+            }
+          }
+        } catch (err) {
+          console.error("Surface render error:", err);
+          setStrictValidationMsg("Surface render failed. Please try again.");
+        }
+        setRenderLoading(false);
+        return;
+      }
+
+      // No surfaces selected → whole-image prompt fallback across all photos
       const materialsPrompt = selectedFinishes.map(f => `- ${f.itemName}: ${f.renderDescription}`).join("\n");
       const photos = savedRoomPhotos.slice(0, 4);
       const collectedMaterials: { photoIndex: number; url: string }[] = [];
@@ -3743,9 +3802,16 @@ Placement rule: ${p.placementRule}`
                       </div>
                     )}
 
-                    {renderMode === "restyle" && (
+                    {renderMode === "restyle" && !isMinorRenovation && (
                       <div style={{ marginBottom: 10, fontSize: 12, color: "#AAA" }}>
                         Restyle Room keeps your layout and applies selected products to matching furniture types.
+                      </div>
+                    )}
+
+                    {/* Minor renovation: guide the user to select surfaces for precise edits */}
+                    {isMinorRenovation && selectedProducts.length > 0 && minorMissingSurfaceLabels.length > 0 && (
+                      <div style={{ marginBottom: 10, padding: "10px 14px", background: "#FCF8E3", border: "1px solid #F0E6C8", borderRadius: 4, fontSize: 12, color: "#8A6D3B" }}>
+                        For precise results, select these surfaces in your photo first: {minorMissingSurfaceLabels.join(", ")}.
                       </div>
                     )}
 
@@ -3756,7 +3822,10 @@ Placement rule: ${p.placementRule}`
                         disabled={renderLoading || (savedRoomPhotos.length === 0 && !roomPhoto)}
                         style={{ flex: 1, fontSize: 14, padding: "14px 0" }}
                       >
-                        {renderLoading ? "Generating render..." : renders.length === 0 ? "Generate AI render →" : "Regenerate render →"}
+                        {renderLoading ? "Generating render..."
+                          : isMinorRenovation && selectedSurfaces.length > 0 && minorMissingSurfaceLabels.length === 0
+                            ? "Generate precise surface render →"
+                            : renders.length === 0 ? "Generate AI render →" : "Regenerate render →"}
                       </button>
                       {renderPromptExtra.trim() && (
                         <button
@@ -3780,6 +3849,29 @@ Placement rule: ${p.placementRule}`
                     {renderLoading && allRenders.length > 0 && (
                       <div style={{ padding: "12px 16px", background: "#FAF8F5", borderRadius: 4, marginBottom: 16, fontSize: 13, color: "#888" }}>
                         ✓ {allRenders.length} render{allRenders.length > 1 ? "s" : ""} done — generating more...
+                      </div>
+                    )}
+
+                    {/* Minor renovation: surface edits applied summary */}
+                    {isMinorRenovation && (surfaceEditsApplied.length > 0 || surfaceRenderWarnings.length > 0) && (
+                      <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
+                        {surfaceEditsApplied.length > 0 && (
+                          <>
+                            <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 8 }}>SURFACE EDITS APPLIED</div>
+                            {surfaceEditsApplied.map((e, i) => (
+                              <div key={i} style={{ fontSize: 12, color: "#7A6A55", marginBottom: 2 }}>
+                                <strong>{e.surfaceLabel}</strong> → {e.finishName}
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {surfaceRenderWarnings.length > 0 && (
+                          <div style={{ marginTop: surfaceEditsApplied.length > 0 ? 8 : 0 }}>
+                            {surfaceRenderWarnings.map((w, i) => (
+                              <div key={i} style={{ fontSize: 11, color: "#C08552" }}>⚠ {w}</div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
 

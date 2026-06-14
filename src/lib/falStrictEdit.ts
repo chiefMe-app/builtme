@@ -57,6 +57,39 @@ export async function submitStrictFill(params: {
   return submission.request_id;
 }
 
+export function isMaskEditConfigured(): boolean {
+  return Boolean(process.env.FAL_KEY);
+}
+
+/**
+ * Generic mask-based local image edit (not furniture-specific). Submits and
+ * waits synchronously, returning the generated image URL. Throws on failure —
+ * never silently returns the original image.
+ */
+export async function runMaskedImageEdit(params: {
+  imageUrl: string;
+  maskUrl: string;
+  prompt: string;
+}): Promise<string> {
+  if (!isMaskEditConfigured()) {
+    throw new Error("Mask-based surface editing provider is not configured.");
+  }
+  configureFal();
+  const result = await fal.subscribe(STRICT_FILL_MODEL, {
+    input: {
+      image_url: params.imageUrl,
+      mask_url: params.maskUrl,
+      prompt: params.prompt,
+      num_images: 1,
+      output_format: "jpeg",
+    },
+  });
+  const images = (result.data as { images?: { url: string }[] })?.images;
+  const url = images?.[0]?.url;
+  if (!url) throw new Error("Mask edit returned no image");
+  return url;
+}
+
 /** Poll a strict fill job. Returns the generated image URL when complete, null while processing. */
 export async function getStrictFillResult(requestId: string): Promise<string | null> {
   configureFal();
