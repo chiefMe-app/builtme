@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { matchCatalogProducts, NeededCategory } from "@/lib/matchCatalogProducts";
 import { normalizeFurnitureCategory } from "@/lib/normalizeFurnitureCategory";
+import { matchRenovationMaterials, RenovationAction } from "@/lib/matchRenovationMaterials";
 
 export const maxDuration = 120;
 
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest) {
     const budget = formData.get("budget") as string;
     const existingAnalysis = JSON.parse((formData.get("existingAnalysis") as string) || "{}") as ExistingAnalysis;
     const selectedChangeItems = JSON.parse((formData.get("selectedChangeItems") as string) || "[]") as SelectedChangeItem[];
+    const isMinorRenovation = (formData.get("isMinorRenovation") as string) === "true";
+    const selectedRenovationActions = JSON.parse((formData.get("selectedRenovationActions") as string) || "[]") as RenovationAction[];
 
     const imageContents: Anthropic.ContentBlockParam[] = [];
     let i = 0;
@@ -106,6 +109,17 @@ Return ONLY valid JSON:
       } catch (styleErr) {
         console.error("Style extraction failed (non-fatal):", styleErr);
       }
+    }
+
+    // MINOR RENOVATION: drive options from selected renovation actions and the
+    // material catalog — never furniture categories. References affect style only.
+    if (isMinorRenovation) {
+      const products = matchRenovationMaterials({ selectedRenovationActions, budget: budgetNumber, styleTags, colorTags });
+      console.log("[extract-products-minor-renovation]", {
+        selectedRenovationActions,
+        returnedCategories: products.map(p => p.category),
+      });
+      return NextResponse.json({ styleExtracted, products, mode: "minor_renovation" });
     }
 
     let neededCategories: NeededCategory[];

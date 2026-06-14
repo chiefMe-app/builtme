@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { isValidProductImageUrl, isValidProductUrl } from "@/lib/validateProductImage";
 import { isBboxTooSmallForCategory } from "@/lib/expandFurnitureBbox";
 import { normalizeFurnitureCategory, getCategoryPlacementRule } from "@/lib/normalizeFurnitureCategory";
+import { normalizeRenovationCategory } from "@/lib/normalizeRenovationCategory";
 import { validateRestyleRenderMetadata } from "@/lib/renderValidation";
 import { UAE_FURNITURE_CATALOG, CatalogProduct } from "@/data/uaeFurnitureCatalog";
 import { getSupplierOptionsForObject } from "@/lib/getSupplierOptionsForObject";
@@ -712,6 +713,16 @@ export default function BuiltMe() {
   const selectedChangeItems = whatToChange.flatMap(id => CHANGE_OPTION_TO_CATEGORIES[id] || [])
     .map(c => ({ label: c.label, category: c.category, normalizedCategory: c.category }));
 
+  // Minor renovation: AI Render is driven by renovation actions (selectedMinorItems),
+  // not furniture categories.
+  const isMinorRenovation = savedUserType === "minor_reno";
+  const selectedRenovationActions = selectedMinorItems.map(id => {
+    const opt = [...KITCHEN_OPTIONS, ...BATHROOM_OPTIONS].find(o => o.id === id);
+    const label = opt?.label || id.replace(/_/g, " ");
+    const category = normalizeRenovationCategory(label);
+    return { id, label, category, normalizedCategory: category };
+  });
+
   const extractProductsFromReferences = async () => {
     if (savedReferencePhotos.length === 0) return;
     setExtractingProducts(true);
@@ -731,6 +742,8 @@ export default function BuiltMe() {
       // Source of truth: the user's selected change items drive the product
       // categories. Reference images only influence style/colour.
       formData.append("selectedChangeItems", JSON.stringify(selectedChangeItems));
+      formData.append("isMinorRenovation", String(isMinorRenovation));
+      formData.append("selectedRenovationActions", JSON.stringify(selectedRenovationActions));
 
       const res = await fetch("/api/extract-products", {
         method: "POST",
@@ -1105,11 +1118,12 @@ export default function BuiltMe() {
 
   // Submit one guided restyle render (structured category mappings) and poll
   // until it finishes. Returns the result image URL.
-  const runRestyleRender = async (photo: File, productsPrompt: string): Promise<string | null> => {
+  const runRestyleRender = async (photo: File, productsPrompt: string, minorRenovation = false): Promise<string | null> => {
     const formData = new FormData();
     formData.append("image", photo);
     formData.append("productsPrompt", productsPrompt);
     formData.append("renderPromptExtra", renderPromptExtra || "");
+    if (minorRenovation) formData.append("isMinorRenovation", "true");
 
     const renderRes = await fetch("/api/render", { method: "POST", body: formData });
     const renderData = await renderRes.json();
@@ -1138,6 +1152,42 @@ export default function BuiltMe() {
     setRenderLoading(true);
     setRenders([]);
     setAllRenders([]);
+
+    // Minor renovation: build a materials prompt (surface/finish changes only)
+    // from the selected material options, and render with the renovation prompt.
+    if (isMinorRenovation) {
+      const materialLines = selectedProducts.map(key => {
+        const [itemName, optionName] = key.split("__");
+        const product = extractedProducts.find(p => p.itemName === itemName);
+        const option = product?.options?.find(o => o.name === optionName);
+        const desc = option?.renderDescription || product?.renderDescription || optionName || itemName;
+        return `- ${product?.itemName || itemName}: ${desc}`;
+      });
+      const materialsPrompt = materialLines.join("\n");
+      const photos = savedRoomPhotos.slice(0, 4);
+      const collectedMaterials: { photoIndex: number; url: string }[] = [];
+      for (let i = 0; i < photos.length; i++) {
+        const rendered = await runRestyleRender(photos[i], materialsPrompt, true)
+          || await runRestyleRender(photos[i], materialsPrompt, true);
+        if (!rendered) continue;
+        let url: string = rendered;
+        try {
+          const saveRes = await fetch("/api/save-render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+          const saveData = await saveRes.json();
+          if (saveData.permanentUrl) url = saveData.permanentUrl;
+        } catch { /* keep transient url */ }
+        collectedMaterials.push({ photoIndex: i, url });
+        setAllRenders([...collectedMaterials]);
+        if (i === 0) setRenders([url]);
+        appendRenderToHistory({ mode: "restyle", beforeImage: URL.createObjectURL(photos[i]), afterImage: url, angleLabel: `Angle ${i + 1}`, selectedProduct: getSelectedReplacementProduct(), promptExtra: renderPromptExtra || "" });
+      }
+      localStorage.setItem("builtme_renders", JSON.stringify(collectedMaterials.map(r => r.url)));
+      if (savedProjectId && collectedMaterials.length > 0) {
+        try { await supabase.from("builtme_projects").update({ renders: collectedMaterials.map(r => r.url) }).eq("id", savedProjectId); } catch (e) { console.error(e); }
+      }
+      setRenderLoading(false);
+      return;
+    }
 
     // Structured category mappings: each selected product is locked to its
     // normalized furniture category with an explicit placement rule, so the
@@ -2729,7 +2779,7 @@ Placement rule: ${p.placementRule}`
                 <div style={{ display: "flex", gap: 0, marginBottom: 24, background: "#FAF8F5", borderRadius: 4, padding: 4 }}>
                   {[
                     { id: "references", label: "1. Style References" },
-                    { id: "products", label: "2. Real Products" },
+                    { id: "products", label: isMinorRenovation ? "2. Materials & Finishes" : "2. Real Products" },
                     { id: "render", label: "3. AI Render" },
                   ].map((step) => (
                     <button
@@ -2773,54 +2823,78 @@ Placement rule: ${p.placementRule}`
                             </div>
                           ))}
                         </div>
-                        {/* Items to change — drives which product categories appear */}
-                        <div style={{ marginBottom: 20 }}>
-                          <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
-                            WHAT DO YOU WANT TO CHANGE?
-                          </div>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {CHANGE_OPTIONS.filter(o => (CHANGE_OPTION_TO_CATEGORIES[o.id] || []).length > 0).map(opt => (
-                              <button
-                                key={opt.id}
-                                onClick={() => setWhatToChange(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id])}
-                                style={{
-                                  padding: "8px 14px",
-                                  background: whatToChange.includes(opt.id) ? "#1A1A1A" : "#FFF",
-                                  color: whatToChange.includes(opt.id) ? "#F7F4EF" : "#666",
-                                  border: `1px solid ${whatToChange.includes(opt.id) ? "#1A1A1A" : "#EAE4D9"}`,
-                                  borderRadius: 20, cursor: "pointer",
-                                  fontSize: 12, fontFamily: "'DM Sans', sans-serif",
-                                }}
-                              >
-                                {opt.icon} {opt.label}
-                              </button>
-                            ))}
-                          </div>
-                          {selectedChangeItems.length > 0 && (
-                            <div style={{ fontSize: 12, color: "#AAA", marginTop: 8 }}>
-                              Products will be shown for: {selectedChangeItems.map(c => c.label).join(", ")}
+                        {/* Items to change — drives which product/material categories appear */}
+                        {isMinorRenovation ? (
+                          <div style={{ marginBottom: 20 }}>
+                            <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                              SELECTED RENOVATION CHANGES
                             </div>
-                          )}
-                        </div>
+                            {selectedRenovationActions.length > 0 ? (
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {selectedRenovationActions.map(a => (
+                                  <span key={a.id} style={{ fontSize: 12, background: "#F0EBE2", color: "#7A6A55", padding: "5px 12px", borderRadius: 20 }}>{a.label}</span>
+                                ))}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 12, color: "#AAA" }}>
+                                Select renovation changes from the project setup first.
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ marginBottom: 20 }}>
+                            <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                              WHAT DO YOU WANT TO CHANGE?
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {CHANGE_OPTIONS.filter(o => (CHANGE_OPTION_TO_CATEGORIES[o.id] || []).length > 0).map(opt => (
+                                <button
+                                  key={opt.id}
+                                  onClick={() => setWhatToChange(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id])}
+                                  style={{
+                                    padding: "8px 14px",
+                                    background: whatToChange.includes(opt.id) ? "#1A1A1A" : "#FFF",
+                                    color: whatToChange.includes(opt.id) ? "#F7F4EF" : "#666",
+                                    border: `1px solid ${whatToChange.includes(opt.id) ? "#1A1A1A" : "#EAE4D9"}`,
+                                    borderRadius: 20, cursor: "pointer",
+                                    fontSize: 12, fontFamily: "'DM Sans', sans-serif",
+                                  }}
+                                >
+                                  {opt.icon} {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                            {selectedChangeItems.length > 0 && (
+                              <div style={{ fontSize: 12, color: "#AAA", marginTop: 8 }}>
+                                Products will be shown for: {selectedChangeItems.map(c => c.label).join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
-                        <button
-                          onClick={extractProductsFromReferences}
-                          disabled={extractingProducts || selectedChangeItems.length === 0}
-                          style={{
-                            width: "100%", padding: "14px 0",
-                            background: selectedChangeItems.length === 0 ? "#EEE" : "#1A1A1A",
-                            color: selectedChangeItems.length === 0 ? "#AAA" : "#F7F4EF",
-                            border: "none", borderRadius: 4,
-                            cursor: extractingProducts || selectedChangeItems.length === 0 ? "not-allowed" : "pointer",
-                            fontSize: 14, fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
-                          }}
-                        >
-                          {extractingProducts
-                            ? "Finding products for your selected changes..."
-                            : selectedChangeItems.length === 0
-                              ? "Select what you want to change first"
-                              : "Find products for my selected changes →"}
-                        </button>
+                        {(() => {
+                          const ready = isMinorRenovation ? selectedRenovationActions.length > 0 : selectedChangeItems.length > 0;
+                          return (
+                            <button
+                              onClick={extractProductsFromReferences}
+                              disabled={extractingProducts || !ready}
+                              style={{
+                                width: "100%", padding: "14px 0",
+                                background: !ready ? "#EEE" : "#1A1A1A",
+                                color: !ready ? "#AAA" : "#F7F4EF",
+                                border: "none", borderRadius: 4,
+                                cursor: extractingProducts || !ready ? "not-allowed" : "pointer",
+                                fontSize: 14, fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+                              }}
+                            >
+                              {extractingProducts
+                                ? (isMinorRenovation ? "Finding materials for your renovation..." : "Finding products for your selected changes...")
+                                : !ready
+                                  ? (isMinorRenovation ? "Select renovation changes from setup first" : "Select what you want to change first")
+                                  : (isMinorRenovation ? "Find materials & finishes →" : "Find products for my selected changes →")}
+                            </button>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div style={{ textAlign: "center", padding: "40px 0" }}>
@@ -2849,15 +2923,15 @@ Placement rule: ${p.placementRule}`
                 {renderStep === "products" && (
                   <div>
                     <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.15em", marginBottom: 16 }}>
-                      PRODUCTS FOR YOUR SELECTED CHANGES
+                      {isMinorRenovation ? "MATERIALS FOR YOUR SELECTED RENOVATION CHANGES" : "PRODUCTS FOR YOUR SELECTED CHANGES"}
                     </div>
 
-                    {selectedChangeItems.length > 0 && (
+                    {(isMinorRenovation ? selectedRenovationActions.length > 0 : selectedChangeItems.length > 0) && (
                       <div style={{ marginBottom: 16, padding: "10px 14px", background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
                         <div className="mono" style={{ fontSize: 9, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 6 }}>SELECTED CHANGES</div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {selectedChangeItems.map((c, i) => (
-                            <span key={i} style={{ fontSize: 12, background: "#F0EBE2", color: "#7A6A55", padding: "4px 10px", borderRadius: 20 }}>{c.label}</span>
+                          {(isMinorRenovation ? selectedRenovationActions.map(a => a.label) : selectedChangeItems.map(c => c.label)).map((label, i) => (
+                            <span key={i} style={{ fontSize: 12, background: "#F0EBE2", color: "#7A6A55", padding: "4px 10px", borderRadius: 20 }}>{label}</span>
                           ))}
                         </div>
                       </div>
@@ -2961,7 +3035,9 @@ Placement rule: ${p.placementRule}`
                             fontSize: 14, fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
                           }}
                         >
-                          Apply {selectedProducts.length} product{selectedProducts.length !== 1 ? "s" : ""} to render →
+                          {isMinorRenovation
+                            ? `Apply ${selectedProducts.length} material${selectedProducts.length !== 1 ? "s" : ""} to render →`
+                            : `Apply ${selectedProducts.length} product${selectedProducts.length !== 1 ? "s" : ""} to render →`}
                         </button>
                       </div>
                     ) : (
@@ -2976,7 +3052,8 @@ Placement rule: ${p.placementRule}`
                 {/* Step 3: Render */}
                 {renderStep === "render" && (
                   <div>
-                    {/* Render mode toggle */}
+                    {/* Render mode toggle — hidden for minor renovation (surfaces only) */}
+                    {!isMinorRenovation && (
                     <div style={{ marginBottom: 20 }}>
                       <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
                         RENDER MODE
@@ -3005,9 +3082,10 @@ Placement rule: ${p.placementRule}`
                         ))}
                       </div>
                     </div>
+                    )}
 
-                    {/* What to change (restyle mode only) */}
-                    {renderMode === "restyle" && (
+                    {/* What to change (restyle, furniture projects only) */}
+                    {renderMode === "restyle" && !isMinorRenovation && (
                     <div style={{ marginBottom: 20 }}>
                       <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
                         WHAT DO YOU WANT TO CHANGE?

@@ -122,6 +122,38 @@ ${renderPromptExtra || ""}
 `.trim();
 }
 
+// Minor renovation prompt: surface/material changes only — no furniture edits.
+function buildMinorRenovationPrompt({
+  materialsPrompt,
+  renderPromptExtra,
+}: {
+  materialsPrompt: string;
+  renderPromptExtra?: string;
+}) {
+  return `
+This is a precise minor renovation visualization.
+
+Apply only the selected renovation changes:
+${materialsPrompt || "Refresh the surfaces using the selected finishes."}
+
+Preserve the same room layout, camera angle, walls, windows, architecture, appliances, cabinet structure, countertop position, plumbing position, and floor plan.
+
+Rules:
+1. Do not add or remove furniture.
+2. Do not move appliances.
+3. Do not change the cabinet layout.
+4. Do not change the kitchen/bathroom footprint.
+5. If countertop wrap or slab is selected, change only the countertop surface finish.
+6. If cabinet wrap or paint is selected, change only cabinet door/drawer finish while keeping structure identical.
+7. If backsplash sticker/tile is selected, change only the backsplash area.
+8. If floor sticker/tile is selected, change only the floor surface.
+9. If handles/taps are selected, update only handles/taps in the same positions.
+10. If lighting is selected, add/modify lighting only in appropriate existing positions.
+11. Keep the result realistic and photorealistic, same lighting conditions as the original.
+${renderPromptExtra || ""}
+`.trim();
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Strict object replacement mode (JSON body)
@@ -173,19 +205,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Restyle mode (form data)
+    // Restyle / minor-renovation mode (form data)
     const formData = await req.formData();
     const rawPrompt = formData.get("prompt") as string | null;
     const productsPrompt = formData.get("productsPrompt") as string | null;
     const renderPromptExtra = (formData.get("renderPromptExtra") as string) || "";
+    const isMinorRenovation = (formData.get("isMinorRenovation") as string) === "true";
     const inputImageUrl = formData.get("imageUrl") as string | null;
     const imageFile = formData.get("image") as File | null;
 
-    // Structured category-mapped restyle prompt takes priority; a raw prompt
-    // (e.g. legacy chained-edit step) is still accepted as a fallback
-    const prompt = productsPrompt !== null
-      ? buildRestylePrompt({ productsPrompt, renderPromptExtra })
-      : rawPrompt;
+    // Minor renovation → surface/material prompt; otherwise structured restyle
+    // prompt; a raw prompt is still accepted as a legacy fallback.
+    const prompt = isMinorRenovation
+      ? buildMinorRenovationPrompt({ materialsPrompt: productsPrompt || "", renderPromptExtra })
+      : productsPrompt !== null
+        ? buildRestylePrompt({ productsPrompt, renderPromptExtra })
+        : rawPrompt;
 
     if (!prompt) {
       return NextResponse.json({ error: "No edit instruction provided" }, { status: 400 });
