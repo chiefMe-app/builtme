@@ -18,6 +18,8 @@ export type SelectedSurface = {
   imageHeight: number;
   wasExpanded?: boolean;
   usedFallbackMask?: boolean;
+  polygon?: Array<{ x: number; y: number }>;
+  maskType?: "bbox" | "polygon" | "segmentation";
 };
 
 /** Maps a renovation action/material category to the surface it edits. */

@@ -24,6 +24,14 @@ export function validateSurfaceMask(
   const tooLarge = (label: string) =>
     ({ ok: false, warning: `${label} mask is too large and may affect nearby objects. Please reselect a tighter ${label.toLowerCase()} area.` });
 
+  // Polygon masks follow the real surface shape — skip the rectangular
+  // height/area heuristics; only guard against an extreme/degenerate selection.
+  if (edit.maskType === "polygon") {
+    if (areaRatio < 0.002) return { ok: false, warning: `${surfaceLabel} polygon is too small. Please draw a larger area.` };
+    if (areaRatio > 0.97) return { ok: false, warning: `${surfaceLabel} polygon covers almost the whole image. Please draw a tighter area.` };
+    return { ok: true };
+  }
+
   switch (surfaceCategory) {
     case "countertop":
       // Countertops are shallow horizontal bands

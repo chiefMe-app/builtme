@@ -488,6 +488,9 @@ export default function BuiltMe() {
   const [surfaceSelectionError, setSurfaceSelectionError] = useState<string | null>(null);
   const [surfaceEditsApplied, setSurfaceEditsApplied] = useState<{ surfaceLabel: string; finishName: string }[]>([]);
   const [surfaceRenderWarnings, setSurfaceRenderWarnings] = useState<string[]>([]);
+  const [maskMode, setMaskMode] = useState<"polygon" | "bbox">("polygon");
+  const [polygonPoints, setPolygonPoints] = useState<{ x: number; y: number }[]>([]);
+  const [isFinishingMask, setIsFinishingMask] = useState(false);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -759,16 +762,61 @@ export default function BuiltMe() {
     }).filter((l): l is string => Boolean(l))
   ));
 
-  // Click the photo to select a surface region for the active surface category
-  const handleSurfaceClick = async (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!activeSurfaceCategory || isSelectingSurface) return;
+  // Image click — in polygon mode add a point; in bbox mode run the fallback
+  const handleSurfaceImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!activeSurfaceCategory) return;
     const img = e.currentTarget;
     const rect = img.getBoundingClientRect();
     const naturalW = img.naturalWidth, naturalH = img.naturalHeight;
     if (!naturalW || !naturalH) return;
-    const clickX = ((e.clientX - rect.left) / rect.width) * naturalW;
-    const clickY = ((e.clientY - rect.top) / rect.height) * naturalH;
+    setStrictImageDims({ w: naturalW, h: naturalH });
+    const x = ((e.clientX - rect.left) / rect.width) * naturalW;
+    const y = ((e.clientY - rect.top) / rect.height) * naturalH;
 
+    if (maskMode === "polygon") {
+      setPolygonPoints(prev => [...prev, { x, y }]);
+    } else {
+      runBboxSurface(x, y, naturalW, naturalH);
+    }
+  };
+
+  // Finish the in-progress polygon into a mask and store it as a surface
+  const finishPolygonMask = async () => {
+    if (!activeSurfaceCategory || polygonPoints.length < 3 || !strictImageDims || isFinishingMask) return;
+    setIsFinishingMask(true);
+    setSurfaceSelectionError(null);
+    try {
+      const res = await fetch("/api/create-renovation-polygon-mask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: activeSurfaceCategory,
+          label: getSurfaceLabel(activeSurfaceCategory),
+          polygon: polygonPoints,
+          imageWidth: strictImageDims.w,
+          imageHeight: strictImageDims.h,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error || !data.maskUrl) {
+        setSurfaceSelectionError(data.error || "Could not create the mask. Please try again.");
+        return;
+      }
+      const surface: SelectedSurface = data;
+      setSelectedSurfaces(prev => [...prev.filter(s => s.category !== surface.category), surface]);
+      setActiveSurfaceId(surface.id);
+      setPolygonPoints([]);
+    } catch (err) {
+      console.error("Polygon mask failed:", err);
+      setSurfaceSelectionError("Could not create the mask. Please try again.");
+    } finally {
+      setIsFinishingMask(false);
+    }
+  };
+
+  // Rectangle fallback selection for the active surface category
+  const runBboxSurface = async (clickX: number, clickY: number, naturalW: number, naturalH: number) => {
+    if (!activeSurfaceCategory || isSelectingSurface) return;
     setIsSelectingSurface(true);
     setSurfaceSelectionError(null);
     try {
@@ -797,7 +845,7 @@ export default function BuiltMe() {
         setSurfaceSelectionError(data.error || "Could not select that surface. Please try again.");
         return;
       }
-      const surface: SelectedSurface = data;
+      const surface: SelectedSurface = { ...data, maskType: "bbox" };
       // One surface per category for MVP — replace any existing of same category
       setSelectedSurfaces(prev => [...prev.filter(s => s.category !== surface.category), surface]);
       setActiveSurfaceId(surface.id);
@@ -3661,7 +3709,7 @@ Placement rule: ${p.placementRule}`
                             return (
                               <button
                                 key={cat}
-                                onClick={() => setActiveSurfaceCategory(isActive ? null : cat)}
+                                onClick={() => { setActiveSurfaceCategory(isActive ? null : cat); setPolygonPoints([]); }}
                                 style={{
                                   padding: "7px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer",
                                   background: isActive ? "#1A1A1A" : "#FFF",
@@ -3676,7 +3724,9 @@ Placement rule: ${p.placementRule}`
                         </div>
                         {activeSurfaceCategory && (
                           <div style={{ fontSize: 12, color: "#7A6A55", marginBottom: 8 }}>
-                            Click the <strong>{getSurfaceLabel(activeSurfaceCategory)}</strong> area in your photo.
+                            {maskMode === "polygon"
+                              ? <>Click around the <strong>{getSurfaceLabel(activeSurfaceCategory)}</strong> edges. Finish when the shape is closed.</>
+                              : <>Click the <strong>{getSurfaceLabel(activeSurfaceCategory)}</strong> area in your photo.</>}
                           </div>
                         )}
                         {/* Photo with surface overlays */}
@@ -3684,38 +3734,78 @@ Placement rule: ${p.placementRule}`
                           <img
                             src={URL.createObjectURL(savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0])}
                             alt="Click a surface to select it"
-                            onClick={handleSurfaceClick}
+                            onClick={handleSurfaceImageClick}
                             style={{ width: "100%", display: "block", cursor: activeSurfaceCategory ? (isSelectingSurface ? "wait" : "crosshair") : "default" }}
                           />
-                          {strictImageDims && selectedSurfaces.map(s => {
-                            const isActive = s.id === activeSurfaceId;
-                            return (
-                              <div key={s.id} style={{
-                                position: "absolute",
-                                left: `${(s.bbox.x / strictImageDims.w) * 100}%`,
-                                top: `${(s.bbox.y / strictImageDims.h) * 100}%`,
-                                width: `${(s.bbox.width / strictImageDims.w) * 100}%`,
-                                height: `${(s.bbox.height / strictImageDims.h) * 100}%`,
-                                border: `2px solid ${isActive ? "#C4A882" : "#9C8B70"}`,
-                                background: isActive ? "rgba(196,168,130,0.22)" : "rgba(156,139,112,0.12)",
-                                borderRadius: 2, pointerEvents: "none",
-                              }}>
-                                <span style={{ position: "absolute", top: -1, left: -1, fontSize: 9, background: isActive ? "#C4A882" : "#9C8B70", color: "#FFF", padding: "1px 5px", borderRadius: "2px 0 4px 0" }}>{s.label}</span>
-                              </div>
-                            );
-                          })}
-                          {isSelectingSurface && (
+                          {/* Stored surface overlays (polygon if available, else bbox) */}
+                          {strictImageDims && (
+                            <svg viewBox={`0 0 ${strictImageDims.w} ${strictImageDims.h}`} preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+                              {selectedSurfaces.map(s => {
+                                const isActive = s.id === activeSurfaceId;
+                                const stroke = isActive ? "#C4A882" : "#9C8B70";
+                                const fill = isActive ? "rgba(196,168,130,0.22)" : "rgba(156,139,112,0.12)";
+                                if (s.polygon && s.polygon.length >= 3) {
+                                  return <polygon key={s.id} points={s.polygon.map(p => `${p.x},${p.y}`).join(" ")} fill={fill} stroke={stroke} strokeWidth={2} />;
+                                }
+                                return <rect key={s.id} x={s.bbox.x} y={s.bbox.y} width={s.bbox.width} height={s.bbox.height} fill={fill} stroke={stroke} strokeWidth={2} />;
+                              })}
+                              {/* In-progress polygon */}
+                              {maskMode === "polygon" && polygonPoints.length > 0 && (
+                                <>
+                                  {polygonPoints.length >= 2 && (
+                                    <polyline points={polygonPoints.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#C4A882" strokeWidth={2} strokeDasharray="6 4" />
+                                  )}
+                                  {polygonPoints.map((p, i) => (
+                                    <circle key={i} cx={p.x} cy={p.y} r={5} fill="#C4A882" />
+                                  ))}
+                                </>
+                              )}
+                            </svg>
+                          )}
+                          {(isSelectingSurface || isFinishingMask) && (
                             <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#555" }}>
-                              Selecting surface...
+                              {isFinishingMask ? "Creating mask..." : "Selecting surface..."}
                             </div>
                           )}
                         </div>
+
+                        {/* Mask draw controls */}
+                        {activeSurfaceCategory && (
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                            {maskMode === "polygon" && (
+                              <>
+                                <button onClick={finishPolygonMask} disabled={polygonPoints.length < 3 || isFinishingMask}
+                                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: polygonPoints.length < 3 ? "not-allowed" : "pointer", background: polygonPoints.length < 3 ? "#EEE" : "#1A1A1A", color: polygonPoints.length < 3 ? "#AAA" : "#F7F4EF", border: "none" }}>
+                                  Finish mask
+                                </button>
+                                <button onClick={() => setPolygonPoints(prev => prev.slice(0, -1))} disabled={polygonPoints.length === 0}
+                                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#666", border: "1px solid #EAE4D9" }}>
+                                  Undo point
+                                </button>
+                                <button onClick={() => setPolygonPoints([])}
+                                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#666", border: "1px solid #EAE4D9" }}>
+                                  Clear mask
+                                </button>
+                                <button onClick={() => setMaskMode("bbox")}
+                                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#888", border: "1px solid #EAE4D9" }}>
+                                  Use rectangle fallback
+                                </button>
+                              </>
+                            )}
+                            {maskMode === "bbox" && (
+                              <button onClick={() => setMaskMode("polygon")}
+                                style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#888", border: "1px solid #EAE4D9" }}>
+                                Draw polygon mask instead
+                              </button>
+                            )}
+                          </div>
+                        )}
                         {surfaceSelectionError && (
                           <div style={{ marginTop: 8, fontSize: 12, color: "#B0533C" }}>{surfaceSelectionError}</div>
                         )}
                         {selectedSurfaces.some(s => s.usedFallbackMask) && (
                           <div style={{ marginTop: 8, fontSize: 11, color: "#8A6D3B", background: "#FCF8E3", border: "1px solid #F0E6C8", borderRadius: 4, padding: "6px 10px" }}>
-                            Approximate rectangular mask — may affect nearby objects. For best results, click tightly on the centre of each surface.
+                            Approximate rectangular mask — may affect nearby objects. For best results, draw a polygon mask around each surface.
                           </div>
                         )}
                         {/* Selected surface chips */}

@@ -18,6 +18,7 @@ export type SurfaceFinishEdit = {
   imageWidth: number;
   imageHeight: number;
   usedFallbackMask?: boolean;
+  maskType?: "bbox" | "polygon" | "segmentation";
   finishCategory: string;
   finishName: string;
   renderDescription: string;
@@ -60,6 +61,7 @@ export function mapFinishesToSurfaces({
       imageWidth: surface.imageWidth,
       imageHeight: surface.imageHeight,
       usedFallbackMask: surface.usedFallbackMask,
+      maskType: surface.maskType,
       finishCategory: finish.category,
       finishName: finish.name,
       renderDescription: finish.renderDescription || finish.name,
