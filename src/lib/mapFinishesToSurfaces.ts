@@ -15,6 +15,9 @@ export type SurfaceFinishEdit = {
   surfaceLabel: string;
   maskUrl: string;
   bbox: { x: number; y: number; width: number; height: number };
+  imageWidth: number;
+  imageHeight: number;
+  usedFallbackMask?: boolean;
   finishCategory: string;
   finishName: string;
   renderDescription: string;
@@ -54,6 +57,9 @@ export function mapFinishesToSurfaces({
       surfaceLabel: surface.label || getSurfaceLabel(surfaceCategory),
       maskUrl: surface.maskUrl,
       bbox: surface.bbox,
+      imageWidth: surface.imageWidth,
+      imageHeight: surface.imageHeight,
+      usedFallbackMask: surface.usedFallbackMask,
       finishCategory: finish.category,
       finishName: finish.name,
       renderDescription: finish.renderDescription || finish.name,

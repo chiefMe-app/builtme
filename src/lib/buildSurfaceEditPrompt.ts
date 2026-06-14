@@ -1,62 +1,65 @@
 import type { SurfaceFinishEdit } from "@/lib/mapFinishesToSurfaces";
 
-const GLOBAL = "Everything outside the mask must remain identical to the input image.";
+const GLOBAL =
+  "Everything outside the mask must remain identical to the input image. " +
+  "The edited area must keep the same perspective, shape, lighting, shadows, edges, and physical boundaries of the original surface. " +
+  "Do not add any rectangle, sample board, texture sheet, poster, floating panel, overlay card, label, or material preview. " +
+  "The finish must be integrated into the existing surface only.";
+
+const AVOID =
+  "AVOID: floating rectangles, material sample boards, texture sheets, swatch cards, posters, labels, " +
+  "before/after cards, marble slabs floating in air, duplicated texture panels, flat overlays, UI elements, text labels.";
 
 /** Strict, surface-specific prompt for a single masked finish edit. */
 export function buildSurfaceEditPrompt(edit: SurfaceFinishEdit): string {
-  const apply = `Apply: ${edit.renderDescription}.`;
-  const head = "This is a precise local surface renovation edit.";
+  // "Refinish ... in place" framing avoids sample-panel words (texture/swatch/sample/panel/preview)
+  const apply = `Refinish the existing surface in place so it looks like: ${edit.renderDescription}.`;
+  const head = "This is a precise in-place surface renovation of a real photo.";
 
+  let specific: string;
   switch (edit.surfaceCategory) {
     case "countertop":
-      return `${head}
-Edit only the selected countertop mask.
-${apply}
-Keep countertop shape, thickness, edges, sink cutout, faucet position, appliances, cabinets, backsplash, floor, and layout unchanged.
-Do not edit anything outside the mask.
-The result should look like the same kitchen with only the countertop surface refinished.
-${GLOBAL}`;
+      specific =
+        "Refinish the existing countertop surface in place. " +
+        "Keep all objects sitting on the countertop unchanged. " +
+        "Do not cover appliances, bottles, toaster, air fryer, sink, faucet, or items on the counter. " +
+        "Keep countertop shape, thickness, edges, sink cutout, cabinets, backsplash, and floor unchanged.";
+      break;
     case "cabinet_doors":
-      return `${head}
-Edit only the selected cabinet door/drawer front mask.
-${apply}
-Keep cabinet layout, size, structure, handle positions, appliances, countertop, backsplash, floor, and walls unchanged.
-Do not edit anything outside the mask.
-${GLOBAL}`;
+      specific =
+        "Refinish only the existing cabinet door and drawer fronts. " +
+        "Keep handles, gaps, edges, panel geometry, cabinet structure, appliances, countertop, backsplash, and floor unchanged.";
+      break;
     case "backsplash":
-      return `${head}
-Edit only the selected backsplash mask.
-${apply}
-Keep cabinets, countertop, appliances, sink, faucet, walls, floor, and layout unchanged.
-Do not generate red brick, exposed brick, random masonry, or unrelated tile unless explicitly selected.
-Do not edit anything outside the mask.
-${GLOBAL}`;
+      specific =
+        "Refinish only the existing backsplash wall surface between the countertop and the upper cabinets. " +
+        "Do not create a floating tile board or rectangular sample. " +
+        "Keep cabinets, countertop, appliances, sink, faucet, and floor unchanged. " +
+        "Do not create red brick, exposed brick, or random masonry unless explicitly selected.";
+      break;
     case "floor":
-      return `${head}
-Edit only the selected floor mask.
-${apply}
-Keep cabinets, countertop, appliances, walls, backsplash, furniture, and layout unchanged.
-Do not edit anything outside the mask.
-${GLOBAL}`;
+      specific =
+        "Refinish only the visible floor plane. Keep perspective and grout lines aligned to the floor. " +
+        "Keep cabinets, appliances, walls, countertop, and backsplash unchanged.";
+      break;
     case "hardware_taps":
-      return `${head}
-Edit only the selected handles/taps mask.
-${apply}
-Keep cabinet colour, cabinet layout, countertop, backsplash, appliances, and all other objects unchanged.
-Do not turn other objects gold/black/chrome.
-Do not edit anything outside the mask.
-${GLOBAL}`;
+      specific =
+        "Recolor/replace only the existing handles, drawer pulls, and tap/faucet in place. " +
+        "Do not recolor cabinet doors or any other object. Keep cabinet colour, layout, countertop, backsplash, and appliances unchanged.";
+      break;
     case "lighting":
-      return `${head}
-Edit only the selected lighting mask and keep the fixture position unchanged.
-${apply}
-Do not edit anything outside the mask.
-${GLOBAL}`;
+      specific =
+        "Update only the selected lighting fixture in place, keeping its position unchanged.";
+      break;
     default:
-      return `${head}
-Edit only the selected mask.
-${apply}
-Do not edit anything outside the mask.
-${GLOBAL}`;
+      specific = "Refinish only the existing surface inside the mask in place.";
   }
+
+  return `${head}
+Edit only the selected ${edit.surfaceLabel.toLowerCase()} mask region.
+${apply}
+${specific}
+Keep camera angle, layout, appliances, sink, faucet, cabinet structure, walls, and floor unchanged unless this exact surface is the one being refinished.
+${GLOBAL}
+${AVOID}`;
 }

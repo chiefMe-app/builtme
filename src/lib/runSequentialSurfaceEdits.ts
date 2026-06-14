@@ -1,6 +1,7 @@
 import { runMaskedImageEdit } from "@/lib/falStrictEdit";
 import { compositeMaskedEdit } from "@/lib/imageComposite";
 import { buildSurfaceEditPrompt } from "@/lib/buildSurfaceEditPrompt";
+import { validateSurfaceMask } from "@/lib/validateSurfaceMask";
 import type { SurfaceFinishEdit } from "@/lib/mapFinishesToSurfaces";
 
 /**
@@ -25,6 +26,14 @@ export async function runSequentialSurfaceEdits({
   const warnings: string[] = [];
 
   for (const edit of edits) {
+    // Skip masks that are too large / wrong-shape — they tend to produce
+    // floating material panels covering unrelated objects
+    const check = validateSurfaceMask(edit, edit.imageWidth, edit.imageHeight);
+    if (!check.ok) {
+      console.warn("[surface-edit] skipped:", check.warning);
+      warnings.push(check.warning || `Skipped ${edit.surfaceLabel} (mask too large)`);
+      continue;
+    }
     const prompt = buildSurfaceEditPrompt(edit);
     try {
       // 1. Masked model edit (may repaint the whole frame)

@@ -3713,6 +3713,11 @@ Placement rule: ${p.placementRule}`
                         {surfaceSelectionError && (
                           <div style={{ marginTop: 8, fontSize: 12, color: "#B0533C" }}>{surfaceSelectionError}</div>
                         )}
+                        {selectedSurfaces.some(s => s.usedFallbackMask) && (
+                          <div style={{ marginTop: 8, fontSize: 11, color: "#8A6D3B", background: "#FCF8E3", border: "1px solid #F0E6C8", borderRadius: 4, padding: "6px 10px" }}>
+                            Approximate rectangular mask — may affect nearby objects. For best results, click tightly on the centre of each surface.
+                          </div>
+                        )}
                         {/* Selected surface chips */}
                         {selectedSurfaces.length > 0 && (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
