@@ -181,6 +181,7 @@ export async function POST(req: NextRequest) {
     const renderPromptExtra = (formData.get("renderPromptExtra") as string) || "";
     const isMinorRenovation = (formData.get("isMinorRenovation") as string) === "true";
     const selectedFinishes = JSON.parse((formData.get("selectedFinishes") as string) || "[]") as SelectedFinish[];
+    const selectedSurfaces = JSON.parse((formData.get("selectedSurfaces") as string) || "[]");
     const inputImageUrl = formData.get("imageUrl") as string | null;
     const imageFile = formData.get("image") as File | null;
 
@@ -194,6 +195,7 @@ export async function POST(req: NextRequest) {
 
     if (isMinorRenovation) {
       console.log("[minor-renovation-prompt]", prompt);
+      console.log("[minor-renovation-selected-surfaces]", selectedSurfaces);
     }
 
     if (!prompt) {

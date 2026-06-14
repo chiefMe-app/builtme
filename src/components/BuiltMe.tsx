@@ -13,6 +13,7 @@ import { getSupplierOptionsForObject } from "@/lib/getSupplierOptionsForObject";
 import { isCompatibleReplacement } from "@/lib/isCompatibleReplacement";
 import { runSequentialStrictReplacements, StrictReplacementStep } from "@/lib/runSequentialStrictReplacements";
 import MaterialSwatch from "@/components/MaterialSwatch";
+import { mapRenovationActionToSurfaceCategory, getSurfaceLabel, type SelectedSurface, type RenovationSurfaceCategory } from "@/lib/renovationSurfaceCategories";
 import type { User } from "@supabase/supabase-js";
 
 interface ColorSwatch {
@@ -479,6 +480,12 @@ export default function BuiltMe() {
   const [strictValidationMsg, setStrictValidationMsg] = useState<string | null>(null);
   const [renderHistory, setRenderHistory] = useState<RenderHistoryEntry[]>([]);
   const [activeRenderId, setActiveRenderId] = useState<string | null>(null);
+  // Minor renovation surface selection (mask infrastructure)
+  const [selectedSurfaces, setSelectedSurfaces] = useState<SelectedSurface[]>([]);
+  const [activeSurfaceCategory, setActiveSurfaceCategory] = useState<RenovationSurfaceCategory | null>(null);
+  const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
+  const [isSelectingSurface, setIsSelectingSurface] = useState(false);
+  const [surfaceSelectionError, setSurfaceSelectionError] = useState<string | null>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -724,6 +731,70 @@ export default function BuiltMe() {
     const category = normalizeRenovationCategory(label);
     return { id, label, category, normalizedCategory: category };
   });
+
+  // The distinct editable surfaces implied by the selected renovation actions
+  const surfaceCategoriesForActions = Array.from(
+    new Set(
+      selectedRenovationActions
+        .map(a => mapRenovationActionToSurfaceCategory(a.category))
+        .filter((c): c is RenovationSurfaceCategory => c !== "unknown")
+    )
+  );
+
+  const removeSelectedSurface = (id: string) => {
+    setSelectedSurfaces(prev => prev.filter(s => s.id !== id));
+    setActiveSurfaceId(prev => (prev === id ? null : prev));
+  };
+
+  // Click the photo to select a surface region for the active surface category
+  const handleSurfaceClick = async (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!activeSurfaceCategory || isSelectingSurface) return;
+    const img = e.currentTarget;
+    const rect = img.getBoundingClientRect();
+    const naturalW = img.naturalWidth, naturalH = img.naturalHeight;
+    if (!naturalW || !naturalH) return;
+    const clickX = ((e.clientX - rect.left) / rect.width) * naturalW;
+    const clickY = ((e.clientY - rect.top) / rect.height) * naturalH;
+
+    setIsSelectingSurface(true);
+    setSurfaceSelectionError(null);
+    try {
+      // Reuse the uploaded-photo URL cache (shared with strict mode)
+      let imageUrl = strictImageUrl;
+      if (!imageUrl) {
+        const photo = savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0];
+        if (!photo) throw new Error("No room photo");
+        const fd = new FormData();
+        fd.append("image", photo);
+        const upRes = await fetch("/api/upload-photo", { method: "POST", body: fd });
+        const upData = await upRes.json();
+        if (!upData.url) throw new Error(upData.error || "Photo upload failed");
+        imageUrl = upData.url as string;
+        setStrictImageUrl(imageUrl);
+      }
+      setStrictImageDims({ w: naturalW, h: naturalH });
+
+      const res = await fetch("/api/segment-renovation-surface", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl, clickX, clickY, imageWidth: naturalW, imageHeight: naturalH, targetSurfaceCategory: activeSurfaceCategory }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error || !data.maskUrl) {
+        setSurfaceSelectionError(data.error || "Could not select that surface. Please try again.");
+        return;
+      }
+      const surface: SelectedSurface = data;
+      // One surface per category for MVP — replace any existing of same category
+      setSelectedSurfaces(prev => [...prev.filter(s => s.category !== surface.category), surface]);
+      setActiveSurfaceId(surface.id);
+    } catch (err) {
+      console.error("Surface selection failed:", err);
+      setSurfaceSelectionError("Could not select that surface. Please try again.");
+    } finally {
+      setIsSelectingSurface(false);
+    }
+  };
 
   const extractProductsFromReferences = async () => {
     if (savedReferencePhotos.length === 0) return;
@@ -1128,6 +1199,7 @@ export default function BuiltMe() {
     if (minorRenovation) {
       formData.append("isMinorRenovation", "true");
       formData.append("selectedFinishes", JSON.stringify(selectedFinishes || []));
+      formData.append("selectedSurfaces", JSON.stringify(selectedSurfaces));
     }
 
     const renderRes = await fetch("/api/render", { method: "POST", body: formData });
@@ -3516,6 +3588,95 @@ Placement rule: ${p.placementRule}`
                     )}
 
                     {/* Selected products summary */}
+                    {/* Minor renovation: surface selection (mask infrastructure) */}
+                    {isMinorRenovation && savedRoomPhotos.length > 0 && surfaceCategoriesForActions.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
+                          SELECT THE SURFACES TO CHANGE
+                        </div>
+                        {/* Surface category chips */}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                          {surfaceCategoriesForActions.map(cat => {
+                            const isActive = activeSurfaceCategory === cat;
+                            const done = selectedSurfaces.some(s => s.category === cat);
+                            return (
+                              <button
+                                key={cat}
+                                onClick={() => setActiveSurfaceCategory(isActive ? null : cat)}
+                                style={{
+                                  padding: "7px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer",
+                                  background: isActive ? "#1A1A1A" : "#FFF",
+                                  color: isActive ? "#F7F4EF" : "#666",
+                                  border: `1px solid ${isActive ? "#1A1A1A" : "#EAE4D9"}`,
+                                }}
+                              >
+                                {done ? "✓ " : ""}{getSurfaceLabel(cat)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {activeSurfaceCategory && (
+                          <div style={{ fontSize: 12, color: "#7A6A55", marginBottom: 8 }}>
+                            Click the <strong>{getSurfaceLabel(activeSurfaceCategory)}</strong> area in your photo.
+                          </div>
+                        )}
+                        {/* Photo with surface overlays */}
+                        <div style={{ position: "relative", borderRadius: 4, overflow: "hidden", border: "1px solid #EAE4D9" }}>
+                          <img
+                            src={URL.createObjectURL(savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0])}
+                            alt="Click a surface to select it"
+                            onClick={handleSurfaceClick}
+                            style={{ width: "100%", display: "block", cursor: activeSurfaceCategory ? (isSelectingSurface ? "wait" : "crosshair") : "default" }}
+                          />
+                          {strictImageDims && selectedSurfaces.map(s => {
+                            const isActive = s.id === activeSurfaceId;
+                            return (
+                              <div key={s.id} style={{
+                                position: "absolute",
+                                left: `${(s.bbox.x / strictImageDims.w) * 100}%`,
+                                top: `${(s.bbox.y / strictImageDims.h) * 100}%`,
+                                width: `${(s.bbox.width / strictImageDims.w) * 100}%`,
+                                height: `${(s.bbox.height / strictImageDims.h) * 100}%`,
+                                border: `2px solid ${isActive ? "#C4A882" : "#9C8B70"}`,
+                                background: isActive ? "rgba(196,168,130,0.22)" : "rgba(156,139,112,0.12)",
+                                borderRadius: 2, pointerEvents: "none",
+                              }}>
+                                <span style={{ position: "absolute", top: -1, left: -1, fontSize: 9, background: isActive ? "#C4A882" : "#9C8B70", color: "#FFF", padding: "1px 5px", borderRadius: "2px 0 4px 0" }}>{s.label}</span>
+                              </div>
+                            );
+                          })}
+                          {isSelectingSurface && (
+                            <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#555" }}>
+                              Selecting surface...
+                            </div>
+                          )}
+                        </div>
+                        {surfaceSelectionError && (
+                          <div style={{ marginTop: 8, fontSize: 12, color: "#B0533C" }}>{surfaceSelectionError}</div>
+                        )}
+                        {/* Selected surface chips */}
+                        {selectedSurfaces.length > 0 && (
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                            {selectedSurfaces.map(s => (
+                              <span key={s.id} onClick={() => setActiveSurfaceId(s.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, padding: "5px 10px", borderRadius: 20, background: s.id === activeSurfaceId ? "#1A1A1A" : "#FFF", color: s.id === activeSurfaceId ? "#F7F4EF" : "#666", border: `1px solid ${s.id === activeSurfaceId ? "#1A1A1A" : "#EAE4D9"}` }}>
+                                ✓ {s.label}
+                                <span onClick={(e) => { e.stopPropagation(); removeSelectedSurface(s.id); }} style={{ opacity: 0.7 }}>×</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {/* Surface selection debug */}
+                        {selectedSurfaces.length > 0 && (
+                          <details style={{ marginTop: 8 }}>
+                            <summary style={{ fontSize: 11, color: "#BBB", cursor: "pointer" }}>Surface selection details</summary>
+                            <pre style={{ fontSize: 10, color: "#999", background: "#FAF8F5", padding: 8, borderRadius: 4, overflow: "auto" }}>
+{JSON.stringify(selectedSurfaces.map(s => ({ category: s.category, bbox: s.bbox, maskExists: Boolean(s.maskUrl), usedFallbackMask: s.usedFallbackMask, wasExpanded: s.wasExpanded })), null, 2)}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                    )}
+
                     {/* Minor renovation: selected finishes with mini swatches */}
                     {isMinorRenovation && selectedProducts.length > 0 && (
                       <div style={{ background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4, padding: "12px 16px", marginBottom: 16 }}>
@@ -3537,6 +3698,16 @@ Placement rule: ${p.placementRule}`
                                   <div style={{ fontSize: 11, color: "#999" }}>
                                     {option.brand}{option.price === "Price unavailable" ? "" : ` · AED ${option.price}`}{option.unit ? ` / ${option.unit.replace("per ", "")}` : ""}
                                   </div>
+                                  {(() => {
+                                    const surfCat = mapRenovationActionToSurfaceCategory(product.category);
+                                    if (surfCat === "unknown") return null;
+                                    const selected = selectedSurfaces.some(s => s.category === surfCat);
+                                    return (
+                                      <div style={{ fontSize: 11, color: selected ? "#6F8F5E" : "#C08552", marginTop: 2 }}>
+                                        Surface: {getSurfaceLabel(surfCat)} {selected ? "selected ✓" : "not selected yet"}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             );
