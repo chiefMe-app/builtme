@@ -1120,12 +1120,15 @@ export default function BuiltMe() {
 
   // Submit one guided restyle render (structured category mappings) and poll
   // until it finishes. Returns the result image URL.
-  const runRestyleRender = async (photo: File, productsPrompt: string, minorRenovation = false): Promise<string | null> => {
+  const runRestyleRender = async (photo: File, productsPrompt: string, minorRenovation = false, selectedFinishes?: unknown[]): Promise<string | null> => {
     const formData = new FormData();
     formData.append("image", photo);
     formData.append("productsPrompt", productsPrompt);
     formData.append("renderPromptExtra", renderPromptExtra || "");
-    if (minorRenovation) formData.append("isMinorRenovation", "true");
+    if (minorRenovation) {
+      formData.append("isMinorRenovation", "true");
+      formData.append("selectedFinishes", JSON.stringify(selectedFinishes || []));
+    }
 
     const renderRes = await fetch("/api/render", { method: "POST", body: formData });
     const renderData = await renderRes.json();
@@ -1158,19 +1161,27 @@ export default function BuiltMe() {
     // Minor renovation: build a materials prompt (surface/finish changes only)
     // from the selected material options, and render with the renovation prompt.
     if (isMinorRenovation) {
-      const materialLines = selectedProducts.map(key => {
+      // Structured selected finishes → surface-specific render instructions
+      const selectedFinishes = selectedProducts.map(key => {
         const [itemName, optionName] = key.split("__");
         const product = extractedProducts.find(p => p.itemName === itemName);
         const option = product?.options?.find(o => o.name === optionName);
-        const desc = option?.renderDescription || product?.renderDescription || optionName || itemName;
-        return `- ${product?.itemName || itemName}: ${desc}`;
+        return {
+          category: product?.category || itemName,
+          itemName: product?.itemName || itemName,
+          name: option?.name || optionName || itemName,
+          renderDescription: option?.renderDescription || product?.renderDescription || option?.name || itemName,
+          supplier: option?.brand || "",
+          brand: option?.brand || "",
+        };
       });
-      const materialsPrompt = materialLines.join("\n");
+      console.log("[minor-render-selected-finishes]", selectedFinishes);
+      const materialsPrompt = selectedFinishes.map(f => `- ${f.itemName}: ${f.renderDescription}`).join("\n");
       const photos = savedRoomPhotos.slice(0, 4);
       const collectedMaterials: { photoIndex: number; url: string }[] = [];
       for (let i = 0; i < photos.length; i++) {
-        const rendered = await runRestyleRender(photos[i], materialsPrompt, true)
-          || await runRestyleRender(photos[i], materialsPrompt, true);
+        const rendered = await runRestyleRender(photos[i], materialsPrompt, true, selectedFinishes)
+          || await runRestyleRender(photos[i], materialsPrompt, true, selectedFinishes);
         if (!rendered) continue;
         let url: string = rendered;
         try {

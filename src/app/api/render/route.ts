@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { submitStrictFill } from "@/lib/falStrictEdit";
 import { setStrictJob } from "@/lib/strictJobs";
+import { buildMinorRenovationPrompt, SelectedFinish } from "@/lib/buildMinorRenovationPrompt";
 
 export const maxDuration = 300;
 
@@ -122,38 +123,6 @@ ${renderPromptExtra || ""}
 `.trim();
 }
 
-// Minor renovation prompt: surface/material changes only — no furniture edits.
-function buildMinorRenovationPrompt({
-  materialsPrompt,
-  renderPromptExtra,
-}: {
-  materialsPrompt: string;
-  renderPromptExtra?: string;
-}) {
-  return `
-This is a precise minor renovation visualization.
-
-Apply only the selected renovation changes:
-${materialsPrompt || "Refresh the surfaces using the selected finishes."}
-
-Preserve the same room layout, camera angle, walls, windows, architecture, appliances, cabinet structure, countertop position, plumbing position, and floor plan.
-
-Rules:
-1. Do not add or remove furniture.
-2. Do not move appliances.
-3. Do not change the cabinet layout.
-4. Do not change the kitchen/bathroom footprint.
-5. If countertop wrap or slab is selected, change only the countertop surface finish.
-6. If cabinet wrap or paint is selected, change only cabinet door/drawer finish while keeping structure identical.
-7. If backsplash sticker/tile is selected, change only the backsplash area.
-8. If floor sticker/tile is selected, change only the floor surface.
-9. If handles/taps are selected, update only handles/taps in the same positions.
-10. If lighting is selected, add/modify lighting only in appropriate existing positions.
-11. Keep the result realistic and photorealistic, same lighting conditions as the original.
-${renderPromptExtra || ""}
-`.trim();
-}
-
 export async function POST(req: NextRequest) {
   try {
     // Strict object replacement mode (JSON body)
@@ -211,16 +180,21 @@ export async function POST(req: NextRequest) {
     const productsPrompt = formData.get("productsPrompt") as string | null;
     const renderPromptExtra = (formData.get("renderPromptExtra") as string) || "";
     const isMinorRenovation = (formData.get("isMinorRenovation") as string) === "true";
+    const selectedFinishes = JSON.parse((formData.get("selectedFinishes") as string) || "[]") as SelectedFinish[];
     const inputImageUrl = formData.get("imageUrl") as string | null;
     const imageFile = formData.get("image") as File | null;
 
-    // Minor renovation → surface/material prompt; otherwise structured restyle
-    // prompt; a raw prompt is still accepted as a legacy fallback.
+    // Minor renovation → surface-specific finish prompt; otherwise structured
+    // restyle prompt; a raw prompt is still accepted as a legacy fallback.
     const prompt = isMinorRenovation
-      ? buildMinorRenovationPrompt({ materialsPrompt: productsPrompt || "", renderPromptExtra })
+      ? buildMinorRenovationPrompt({ selectedFinishes, renderPromptExtra })
       : productsPrompt !== null
         ? buildRestylePrompt({ productsPrompt, renderPromptExtra })
         : rawPrompt;
+
+    if (isMinorRenovation) {
+      console.log("[minor-renovation-prompt]", prompt);
+    }
 
     if (!prompt) {
       return NextResponse.json({ error: "No edit instruction provided" }, { status: 400 });
