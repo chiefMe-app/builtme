@@ -161,6 +161,13 @@ interface OnlineProduct {
   renderDescription: string;
 }
 
+// One tapped region mask for a renovation surface category (multiple per category)
+interface SurfaceRegion {
+  id: string;
+  maskUrl: string;
+  bbox: { x: number; y: number; width: number; height: number };
+}
+
 // A furniture object the user has tapped/segmented in the room photo
 interface SelectedObject {
   id: string;
@@ -480,17 +487,13 @@ export default function BuiltMe() {
   const [strictValidationMsg, setStrictValidationMsg] = useState<string | null>(null);
   const [renderHistory, setRenderHistory] = useState<RenderHistoryEntry[]>([]);
   const [activeRenderId, setActiveRenderId] = useState<string | null>(null);
-  // Minor renovation surface selection (mask infrastructure)
-  const [selectedSurfaces, setSelectedSurfaces] = useState<SelectedSurface[]>([]);
+  // Minor renovation surface selection — multi-region, tap-to-select per category
+  const [surfaceRegions, setSurfaceRegions] = useState<Record<string, SurfaceRegion[]>>({});
   const [activeSurfaceCategory, setActiveSurfaceCategory] = useState<RenovationSurfaceCategory | null>(null);
-  const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [isSelectingSurface, setIsSelectingSurface] = useState(false);
   const [surfaceSelectionError, setSurfaceSelectionError] = useState<string | null>(null);
   const [surfaceEditsApplied, setSurfaceEditsApplied] = useState<{ surfaceLabel: string; finishName: string }[]>([]);
   const [surfaceRenderWarnings, setSurfaceRenderWarnings] = useState<string[]>([]);
-  const [maskMode, setMaskMode] = useState<"polygon" | "bbox">("polygon");
-  const [polygonPoints, setPolygonPoints] = useState<{ x: number; y: number }[]>([]);
-  const [isFinishingMask, setIsFinishingMask] = useState(false);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -746,9 +749,14 @@ export default function BuiltMe() {
     )
   );
 
-  const removeSelectedSurface = (id: string) => {
-    setSelectedSurfaces(prev => prev.filter(s => s.id !== id));
-    setActiveSurfaceId(prev => (prev === id ? null : prev));
+  const regionsFor = (cat: string): SurfaceRegion[] => surfaceRegions[cat] || [];
+  const hasRegions = (cat: string) => regionsFor(cat).length > 0;
+
+  const clearCategoryRegions = (cat: string) => {
+    setSurfaceRegions(prev => { const next = { ...prev }; delete next[cat]; return next; });
+  };
+  const undoLastRegion = (cat: string) => {
+    setSurfaceRegions(prev => ({ ...prev, [cat]: regionsFor(cat).slice(0, -1) }));
   };
 
   // Surface labels that a selected finish needs but the user hasn't placed yet
@@ -758,69 +766,25 @@ export default function BuiltMe() {
       const product = extractedProducts.find(p => p.itemName === itemName);
       const surfCat = mapRenovationActionToSurfaceCategory(product?.category || itemName);
       if (surfCat === "unknown") return null;
-      return selectedSurfaces.some(s => s.category === surfCat) ? null : getSurfaceLabel(surfCat);
+      return hasRegions(surfCat) ? null : getSurfaceLabel(surfCat);
     }).filter((l): l is string => Boolean(l))
   ));
 
-  // Image click — in polygon mode add a point; in bbox mode run the fallback
-  const handleSurfaceImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!activeSurfaceCategory) return;
+  // Tap the image to add a region to the active surface category (appends, never replaces)
+  const handleSurfaceImageClick = async (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!activeSurfaceCategory || isSelectingSurface) return;
     const img = e.currentTarget;
     const rect = img.getBoundingClientRect();
     const naturalW = img.naturalWidth, naturalH = img.naturalHeight;
     if (!naturalW || !naturalH) return;
-    setStrictImageDims({ w: naturalW, h: naturalH });
-    const x = ((e.clientX - rect.left) / rect.width) * naturalW;
-    const y = ((e.clientY - rect.top) / rect.height) * naturalH;
+    const clickX = ((e.clientX - rect.left) / rect.width) * naturalW;
+    const clickY = ((e.clientY - rect.top) / rect.height) * naturalH;
+    const category = activeSurfaceCategory;
 
-    if (maskMode === "polygon") {
-      setPolygonPoints(prev => [...prev, { x, y }]);
-    } else {
-      runBboxSurface(x, y, naturalW, naturalH);
-    }
-  };
-
-  // Finish the in-progress polygon into a mask and store it as a surface
-  const finishPolygonMask = async () => {
-    if (!activeSurfaceCategory || polygonPoints.length < 3 || !strictImageDims || isFinishingMask) return;
-    setIsFinishingMask(true);
-    setSurfaceSelectionError(null);
-    try {
-      const res = await fetch("/api/create-renovation-polygon-mask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: activeSurfaceCategory,
-          label: getSurfaceLabel(activeSurfaceCategory),
-          polygon: polygonPoints,
-          imageWidth: strictImageDims.w,
-          imageHeight: strictImageDims.h,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error || !data.maskUrl) {
-        setSurfaceSelectionError(data.error || "Could not create the mask. Please try again.");
-        return;
-      }
-      const surface: SelectedSurface = data;
-      setSelectedSurfaces(prev => [...prev.filter(s => s.category !== surface.category), surface]);
-      setActiveSurfaceId(surface.id);
-      setPolygonPoints([]);
-    } catch (err) {
-      console.error("Polygon mask failed:", err);
-      setSurfaceSelectionError("Could not create the mask. Please try again.");
-    } finally {
-      setIsFinishingMask(false);
-    }
-  };
-
-  // Rectangle fallback selection for the active surface category
-  const runBboxSurface = async (clickX: number, clickY: number, naturalW: number, naturalH: number) => {
-    if (!activeSurfaceCategory || isSelectingSurface) return;
     setIsSelectingSurface(true);
     setSurfaceSelectionError(null);
     try {
-      // Reuse the uploaded-photo URL cache (shared with strict mode)
+      // Upload the photo once so every region segments against the same URL
       let imageUrl = strictImageUrl;
       if (!imageUrl) {
         const photo = savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0];
@@ -835,26 +799,63 @@ export default function BuiltMe() {
       }
       setStrictImageDims({ w: naturalW, h: naturalH });
 
-      const res = await fetch("/api/segment-renovation-surface", {
+      const res = await fetch("/api/segment-renovation-region", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrl, clickX, clickY, imageWidth: naturalW, imageHeight: naturalH, targetSurfaceCategory: activeSurfaceCategory }),
+        body: JSON.stringify({ imageUrl, clickX, clickY, imageWidth: naturalW, imageHeight: naturalH, category }),
       });
       const data = await res.json();
       if (!res.ok || data.error || !data.maskUrl) {
-        setSurfaceSelectionError(data.error || "Could not select that surface. Please try again.");
+        setSurfaceSelectionError(data.error || "We couldn't detect that area. Please tap the centre of the surface again.");
         return;
       }
-      const surface: SelectedSurface = { ...data, maskType: "bbox" };
-      // One surface per category for MVP — replace any existing of same category
-      setSelectedSurfaces(prev => [...prev.filter(s => s.category !== surface.category), surface]);
-      setActiveSurfaceId(surface.id);
+      const region: SurfaceRegion = { id: data.id, maskUrl: data.maskUrl, bbox: data.bbox };
+      setSurfaceRegions(prev => ({ ...prev, [category]: [...(prev[category] || []), region] }));
     } catch (err) {
-      console.error("Surface selection failed:", err);
-      setSurfaceSelectionError("Could not select that surface. Please try again.");
+      console.error("Region selection failed:", err);
+      setSurfaceSelectionError("We couldn't detect that area. Please tap the centre of the surface again.");
     } finally {
       setIsSelectingSurface(false);
     }
+  };
+
+  // Merge each category's region masks into one union mask → SelectedSurface[]
+  const buildSelectedSurfacesFromRegions = async (): Promise<SelectedSurface[]> => {
+    if (!strictImageDims) return [];
+    const out: SelectedSurface[] = [];
+    for (const cat of Object.keys(surfaceRegions)) {
+      const regions = surfaceRegions[cat];
+      if (!regions?.length) continue;
+      let maskUrl = regions[0].maskUrl;
+      if (regions.length > 1) {
+        try {
+          const res = await fetch("/api/merge-surface-masks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ maskUrls: regions.map(r => r.maskUrl), imageWidth: strictImageDims.w, imageHeight: strictImageDims.h }),
+          });
+          const data = await res.json();
+          if (data.maskUrl) maskUrl = data.maskUrl;
+        } catch (err) { console.error("Mask merge failed:", err); }
+      }
+      // Union bbox across regions
+      const xs1 = regions.map(r => r.bbox.x), ys1 = regions.map(r => r.bbox.y);
+      const xs2 = regions.map(r => r.bbox.x + r.bbox.width), ys2 = regions.map(r => r.bbox.y + r.bbox.height);
+      const x = Math.min(...xs1), y = Math.min(...ys1);
+      const bbox = { x, y, width: Math.max(...xs2) - x, height: Math.max(...ys2) - y };
+      out.push({
+        id: `surface_${cat}_${Date.now()}`,
+        category: cat as RenovationSurfaceCategory,
+        label: getSurfaceLabel(cat as RenovationSurfaceCategory),
+        bbox,
+        maskUrl,
+        imageWidth: strictImageDims.w,
+        imageHeight: strictImageDims.h,
+        maskType: "segmentation",
+        usedFallbackMask: false,
+      });
+    }
+    return out;
   };
 
   const extractProductsFromReferences = async () => {
@@ -1260,7 +1261,6 @@ export default function BuiltMe() {
     if (minorRenovation) {
       formData.append("isMinorRenovation", "true");
       formData.append("selectedFinishes", JSON.stringify(selectedFinishes || []));
-      formData.append("selectedSurfaces", JSON.stringify(selectedSurfaces));
     }
 
     const renderRes = await fetch("/api/render", { method: "POST", body: formData });
@@ -1312,16 +1312,17 @@ export default function BuiltMe() {
       setSurfaceEditsApplied([]);
       setSurfaceRenderWarnings([]);
 
-      // Surface-mask mode: when surfaces are selected, render the selected photo
-      // with sequential masked edits (route returns the final image synchronously).
-      if (selectedSurfaces.length > 0) {
+      // Surface-mask mode: when regions are selected, merge per-category masks and
+      // render the selected photo with sequential masked edits (synchronous).
+      const builtSurfaces = await buildSelectedSurfacesFromRegions();
+      if (builtSurfaces.length > 0) {
         const photo = savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0];
         const fd = new FormData();
         if (strictImageUrl) fd.append("imageUrl", strictImageUrl);
         else fd.append("image", photo);
         fd.append("isMinorRenovation", "true");
         fd.append("selectedFinishes", JSON.stringify(selectedFinishes));
-        fd.append("selectedSurfaces", JSON.stringify(selectedSurfaces));
+        fd.append("selectedSurfaces", JSON.stringify(builtSurfaces));
         fd.append("renderPromptExtra", renderPromptExtra || "");
         try {
           const res = await fetch("/api/render", { method: "POST", body: fd });
@@ -3694,22 +3695,21 @@ Placement rule: ${p.placementRule}`
                       </div>
                     )}
 
-                    {/* Selected products summary */}
-                    {/* Minor renovation: surface selection (mask infrastructure) */}
+                    {/* Minor renovation: multi-region tap-to-select surfaces */}
                     {isMinorRenovation && savedRoomPhotos.length > 0 && surfaceCategoriesForActions.length > 0 && (
                       <div style={{ marginBottom: 20 }}>
                         <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 10 }}>
                           SELECT THE SURFACES TO CHANGE
                         </div>
-                        {/* Surface category chips */}
+                        {/* Surface category chips with region counts */}
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                           {surfaceCategoriesForActions.map(cat => {
                             const isActive = activeSurfaceCategory === cat;
-                            const done = selectedSurfaces.some(s => s.category === cat);
+                            const count = regionsFor(cat).length;
                             return (
                               <button
                                 key={cat}
-                                onClick={() => { setActiveSurfaceCategory(isActive ? null : cat); setPolygonPoints([]); }}
+                                onClick={() => setActiveSurfaceCategory(isActive ? null : cat)}
                                 style={{
                                   padding: "7px 12px", fontSize: 12, borderRadius: 20, cursor: "pointer",
                                   background: isActive ? "#1A1A1A" : "#FFF",
@@ -3717,116 +3717,64 @@ Placement rule: ${p.placementRule}`
                                   border: `1px solid ${isActive ? "#1A1A1A" : "#EAE4D9"}`,
                                 }}
                               >
-                                {done ? "✓ " : ""}{getSurfaceLabel(cat)}
+                                {count > 0 ? "✓ " : ""}{getSurfaceLabel(cat)}{count > 0 ? ` (${count} region${count > 1 ? "s" : ""})` : ""}
                               </button>
                             );
                           })}
                         </div>
                         {activeSurfaceCategory && (
                           <div style={{ fontSize: 12, color: "#7A6A55", marginBottom: 8 }}>
-                            {maskMode === "polygon"
-                              ? <>Click around the <strong>{getSurfaceLabel(activeSurfaceCategory)}</strong> edges. Finish when the shape is closed.</>
-                              : <>Click the <strong>{getSurfaceLabel(activeSurfaceCategory)}</strong> area in your photo.</>}
+                            Tap each <strong>{getSurfaceLabel(activeSurfaceCategory)}</strong> area in your photo. You can tap multiple spots to add more regions.
                           </div>
                         )}
-                        {/* Photo with surface overlays */}
+                        {/* Photo with region overlays */}
                         <div style={{ position: "relative", borderRadius: 4, overflow: "hidden", border: "1px solid #EAE4D9" }}>
                           <img
                             src={URL.createObjectURL(savedRoomPhotos[selectedRenderPhoto] || savedRoomPhotos[0])}
-                            alt="Click a surface to select it"
+                            alt="Tap a surface to select it"
                             onClick={handleSurfaceImageClick}
                             style={{ width: "100%", display: "block", cursor: activeSurfaceCategory ? (isSelectingSurface ? "wait" : "crosshair") : "default" }}
                           />
-                          {/* Stored surface overlays (polygon if available, else bbox) */}
                           {strictImageDims && (
                             <svg viewBox={`0 0 ${strictImageDims.w} ${strictImageDims.h}`} preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
-                              {selectedSurfaces.map(s => {
-                                const isActive = s.id === activeSurfaceId;
+                              {Object.keys(surfaceRegions).flatMap(cat => {
+                                const isActive = cat === activeSurfaceCategory;
                                 const stroke = isActive ? "#C4A882" : "#9C8B70";
-                                const fill = isActive ? "rgba(196,168,130,0.22)" : "rgba(156,139,112,0.12)";
-                                if (s.polygon && s.polygon.length >= 3) {
-                                  return <polygon key={s.id} points={s.polygon.map(p => `${p.x},${p.y}`).join(" ")} fill={fill} stroke={stroke} strokeWidth={2} />;
-                                }
-                                return <rect key={s.id} x={s.bbox.x} y={s.bbox.y} width={s.bbox.width} height={s.bbox.height} fill={fill} stroke={stroke} strokeWidth={2} />;
+                                const fill = isActive ? "rgba(196,168,130,0.28)" : "rgba(156,139,112,0.10)";
+                                return regionsFor(cat).map(r => (
+                                  <g key={r.id}>
+                                    <rect x={r.bbox.x} y={r.bbox.y} width={r.bbox.width} height={r.bbox.height} fill={fill} stroke={stroke} strokeWidth={2} rx={2} />
+                                    <text x={r.bbox.x + 3} y={r.bbox.y + 14} fontSize={11} fill={stroke}>{getSurfaceLabel(cat as RenovationSurfaceCategory)}</text>
+                                  </g>
+                                ));
                               })}
-                              {/* In-progress polygon */}
-                              {maskMode === "polygon" && polygonPoints.length > 0 && (
-                                <>
-                                  {polygonPoints.length >= 2 && (
-                                    <polyline points={polygonPoints.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#C4A882" strokeWidth={2} strokeDasharray="6 4" />
-                                  )}
-                                  {polygonPoints.map((p, i) => (
-                                    <circle key={i} cx={p.x} cy={p.y} r={5} fill="#C4A882" />
-                                  ))}
-                                </>
-                              )}
                             </svg>
                           )}
-                          {(isSelectingSurface || isFinishingMask) && (
+                          {isSelectingSurface && (
                             <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#555" }}>
-                              {isFinishingMask ? "Creating mask..." : "Selecting surface..."}
+                              Selecting region...
                             </div>
                           )}
                         </div>
 
-                        {/* Mask draw controls */}
+                        {/* Region controls for the active category */}
                         {activeSurfaceCategory && (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-                            {maskMode === "polygon" && (
-                              <>
-                                <button onClick={finishPolygonMask} disabled={polygonPoints.length < 3 || isFinishingMask}
-                                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: polygonPoints.length < 3 ? "not-allowed" : "pointer", background: polygonPoints.length < 3 ? "#EEE" : "#1A1A1A", color: polygonPoints.length < 3 ? "#AAA" : "#F7F4EF", border: "none" }}>
-                                  Finish mask
-                                </button>
-                                <button onClick={() => setPolygonPoints(prev => prev.slice(0, -1))} disabled={polygonPoints.length === 0}
-                                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#666", border: "1px solid #EAE4D9" }}>
-                                  Undo point
-                                </button>
-                                <button onClick={() => setPolygonPoints([])}
-                                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#666", border: "1px solid #EAE4D9" }}>
-                                  Clear mask
-                                </button>
-                                <button onClick={() => setMaskMode("bbox")}
-                                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#888", border: "1px solid #EAE4D9" }}>
-                                  Use rectangle fallback
-                                </button>
-                              </>
-                            )}
-                            {maskMode === "bbox" && (
-                              <button onClick={() => setMaskMode("polygon")}
-                                style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: "pointer", background: "#FFF", color: "#888", border: "1px solid #EAE4D9" }}>
-                                Draw polygon mask instead
-                              </button>
-                            )}
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+                            <span style={{ fontSize: 12, color: "#7A6A55" }}>
+                              {getSurfaceLabel(activeSurfaceCategory)} ({regionsFor(activeSurfaceCategory).length} region{regionsFor(activeSurfaceCategory).length === 1 ? "" : "s"} selected)
+                            </span>
+                            <button onClick={() => undoLastRegion(activeSurfaceCategory)} disabled={regionsFor(activeSurfaceCategory).length === 0}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: regionsFor(activeSurfaceCategory).length === 0 ? "not-allowed" : "pointer", background: "#FFF", color: "#666", border: "1px solid #EAE4D9" }}>
+                              Undo last region
+                            </button>
+                            <button onClick={() => clearCategoryRegions(activeSurfaceCategory)} disabled={regionsFor(activeSurfaceCategory).length === 0}
+                              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, cursor: regionsFor(activeSurfaceCategory).length === 0 ? "not-allowed" : "pointer", background: "#FFF", color: "#666", border: "1px solid #EAE4D9" }}>
+                              Clear this surface
+                            </button>
                           </div>
                         )}
                         {surfaceSelectionError && (
                           <div style={{ marginTop: 8, fontSize: 12, color: "#B0533C" }}>{surfaceSelectionError}</div>
-                        )}
-                        {selectedSurfaces.some(s => s.usedFallbackMask) && (
-                          <div style={{ marginTop: 8, fontSize: 11, color: "#8A6D3B", background: "#FCF8E3", border: "1px solid #F0E6C8", borderRadius: 4, padding: "6px 10px" }}>
-                            Approximate rectangular mask — may affect nearby objects. For best results, draw a polygon mask around each surface.
-                          </div>
-                        )}
-                        {/* Selected surface chips */}
-                        {selectedSurfaces.length > 0 && (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                            {selectedSurfaces.map(s => (
-                              <span key={s.id} onClick={() => setActiveSurfaceId(s.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, padding: "5px 10px", borderRadius: 20, background: s.id === activeSurfaceId ? "#1A1A1A" : "#FFF", color: s.id === activeSurfaceId ? "#F7F4EF" : "#666", border: `1px solid ${s.id === activeSurfaceId ? "#1A1A1A" : "#EAE4D9"}` }}>
-                                ✓ {s.label}
-                                <span onClick={(e) => { e.stopPropagation(); removeSelectedSurface(s.id); }} style={{ opacity: 0.7 }}>×</span>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {/* Surface selection debug */}
-                        {selectedSurfaces.length > 0 && (
-                          <details style={{ marginTop: 8 }}>
-                            <summary style={{ fontSize: 11, color: "#BBB", cursor: "pointer" }}>Surface selection details</summary>
-                            <pre style={{ fontSize: 10, color: "#999", background: "#FAF8F5", padding: 8, borderRadius: 4, overflow: "auto" }}>
-{JSON.stringify(selectedSurfaces.map(s => ({ category: s.category, bbox: s.bbox, maskExists: Boolean(s.maskUrl), usedFallbackMask: s.usedFallbackMask, wasExpanded: s.wasExpanded })), null, 2)}
-                            </pre>
-                          </details>
                         )}
                       </div>
                     )}
@@ -3855,7 +3803,7 @@ Placement rule: ${p.placementRule}`
                                   {(() => {
                                     const surfCat = mapRenovationActionToSurfaceCategory(product.category);
                                     if (surfCat === "unknown") return null;
-                                    const selected = selectedSurfaces.some(s => s.category === surfCat);
+                                    const selected = hasRegions(surfCat);
                                     return (
                                       <div style={{ fontSize: 11, color: selected ? "#6F8F5E" : "#C08552", marginTop: 2 }}>
                                         Surface: {getSurfaceLabel(surfCat)} {selected ? "selected ✓" : "not selected yet"}
@@ -3918,7 +3866,7 @@ Placement rule: ${p.placementRule}`
                         style={{ flex: 1, fontSize: 14, padding: "14px 0" }}
                       >
                         {renderLoading ? "Generating render..."
-                          : isMinorRenovation && selectedSurfaces.length > 0 && minorMissingSurfaceLabels.length === 0
+                          : isMinorRenovation && Object.values(surfaceRegions).some(r => r.length > 0) && minorMissingSurfaceLabels.length === 0
                             ? "Generate precise surface render →"
                             : renders.length === 0 ? "Generate AI render →" : "Regenerate render →"}
                       </button>
