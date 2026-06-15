@@ -5,8 +5,7 @@ import { submitStrictFill } from "@/lib/falStrictEdit";
 import { setStrictJob } from "@/lib/strictJobs";
 import { buildMinorRenovationPrompt, SelectedFinish } from "@/lib/buildMinorRenovationPrompt";
 import { mapFinishesToSurfaces } from "@/lib/mapFinishesToSurfaces";
-import { runSequentialSurfaceEdits } from "@/lib/runSequentialSurfaceEdits";
-import { isMaskEditConfigured } from "@/lib/falStrictEdit";
+import { runSafeMaterialPreview } from "@/lib/runSafeMaterialPreview";
 import type { SelectedSurface } from "@/lib/renovationSurfaceCategories";
 
 export const maxDuration = 300;
@@ -186,6 +185,7 @@ export async function POST(req: NextRequest) {
     const isMinorRenovation = (formData.get("isMinorRenovation") as string) === "true";
     const selectedFinishes = JSON.parse((formData.get("selectedFinishes") as string) || "[]") as SelectedFinish[];
     const selectedSurfaces = JSON.parse((formData.get("selectedSurfaces") as string) || "[]") as SelectedSurface[];
+    const surfaceRenderMode = ((formData.get("surfaceRenderMode") as string) || "safe_preview") as "safe_preview" | "ai_realistic";
     const inputImageUrl = formData.get("imageUrl") as string | null;
     const imageFile = formData.get("image") as File | null;
 
@@ -236,12 +236,13 @@ export async function POST(req: NextRequest) {
       imageUrl = urlData.publicUrl;
     }
 
-    // Minor renovation with selected surfaces → sequential masked surface edits.
-    // Each finish is applied inside its own surface mask and composited so
-    // everything outside the mask is preserved.
+    // Minor renovation with selected surfaces → deterministic Safe Preview:
+    // each finish is applied inside its own mask with a controlled material
+    // layer (no AI reinterpretation). AI is optional polish on top.
     if (isMinorRenovation && selectedSurfaces.length > 0) {
       const { edits, warnings } = mapFinishesToSurfaces({ selectedFinishes, selectedSurfaces });
       console.log("[minor-surface-edits]", {
+        renderMode: surfaceRenderMode,
         selectedFinishesCount: selectedFinishes.length,
         selectedSurfacesCount: selectedSurfaces.length,
         edits: edits.map(e => ({ surfaceCategory: e.surfaceCategory, finishCategory: e.finishCategory, finishName: e.finishName })),
@@ -249,31 +250,47 @@ export async function POST(req: NextRequest) {
       });
 
       if (edits.length > 0) {
-        if (!isMaskEditConfigured()) {
-          return NextResponse.json({ error: "Mask-based surface editing provider is not configured." }, { status: 500 });
-        }
-        const uploadImage = async (buf: Buffer): Promise<string> => {
-          const fileName = `surface-render-${Date.now()}-${Math.round(Math.random() * 1e4)}.jpg`;
-          const { error } = await supabase.storage.from("builtme-uploads").upload(fileName, buf, { contentType: "image/jpeg", upsert: true });
-          if (error) throw new Error(`Composite upload failed: ${error.message}`);
-          return supabase.storage.from("builtme-uploads").getPublicUrl(fileName).data.publicUrl;
-        };
-
         try {
-          const { finalImageUrl, appliedEdits, warnings: runWarnings } = await runSequentialSurfaceEdits({ baseImageUrl: imageUrl, edits, uploadImage });
+          // 1. Deterministic safe preview (always)
+          const { finalPreviewUrl, appliedEdits, warnings: previewWarnings } = await runSafeMaterialPreview({ baseImageUrl: imageUrl, edits });
           if (appliedEdits.length === 0) {
-            return NextResponse.json({ error: "Surface edits failed", warnings: [...warnings, ...runWarnings] }, { status: 500 });
+            return NextResponse.json({ error: "Surface finishes could not be applied", warnings: [...warnings, ...previewWarnings] }, { status: 500 });
           }
+
+          let finalUrl = finalPreviewUrl;
+          let usedMode: "safe_preview" | "ai_realistic" = "safe_preview";
+
+          // 2. Optional AI polish — starts FROM the safe preview, must not redesign
+          if (surfaceRenderMode === "ai_realistic" && process.env.FAL_KEY) {
+            const polishPrompt = `Improve only the photographic realism of this kitchen image: integrate the already-applied surface finishes with natural lighting, soft shadows, reflections and correct perspective.
+Do NOT change any material, colour, cabinet style, countertop material, floor tile, backsplash design, layout, or appliance positions.
+Do NOT invent wood cabinets or any new style. Keep every selected finish exactly as it already appears.
+Only polish realism — do not redesign the kitchen.`;
+            try {
+              fal.config({ credentials: process.env.FAL_KEY });
+              const sub = await fal.subscribe("fal-ai/flux-pro/kontext/max", {
+                input: { prompt: polishPrompt, image_url: finalPreviewUrl, num_images: 1, guidance_scale: 2.5, output_format: "jpeg" },
+              });
+              const polished = (sub.data as { images?: { url: string }[] })?.images?.[0]?.url;
+              if (polished) { finalUrl = polished; usedMode = "ai_realistic"; }
+            } catch (polishErr) {
+              console.error("AI polish failed, returning safe preview:", polishErr);
+              previewWarnings.push("AI realism pass failed — showing safe preview.");
+            }
+          }
+
           return NextResponse.json({
             status: "succeeded",
-            images: [finalImageUrl],
+            images: [finalUrl],
             provider: "minor-surface",
+            renderMode: usedMode,
+            safePreviewUrl: finalPreviewUrl,
             surfaceEdits: appliedEdits.map(e => ({ surfaceLabel: e.surfaceLabel, finishName: e.finishName, finishCategory: e.finishCategory })),
-            warnings: [...warnings, ...runWarnings],
+            warnings: [...warnings, ...previewWarnings],
           });
         } catch (surfErr) {
-          console.error("Surface edit run error:", surfErr);
-          return NextResponse.json({ error: surfErr instanceof Error ? surfErr.message : "Surface edits failed" }, { status: 500 });
+          console.error("Safe preview run error:", surfErr);
+          return NextResponse.json({ error: surfErr instanceof Error ? surfErr.message : "Surface finishes failed" }, { status: 500 });
         }
       }
       // No mappable edits — fall through to whole-image prompt render below

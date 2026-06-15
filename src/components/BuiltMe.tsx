@@ -494,6 +494,7 @@ export default function BuiltMe() {
   const [surfaceSelectionError, setSurfaceSelectionError] = useState<string | null>(null);
   const [surfaceEditsApplied, setSurfaceEditsApplied] = useState<{ surfaceLabel: string; finishName: string }[]>([]);
   const [surfaceRenderWarnings, setSurfaceRenderWarnings] = useState<string[]>([]);
+  const [lastSurfaceRenderMode, setLastSurfaceRenderMode] = useState<"safe_preview" | "ai_realistic" | null>(null);
   const refImagesRef = useRef<HTMLInputElement>(null);
   const roomPhotosRef = useRef<HTMLInputElement>(null);
   const renderPhotoRef = useRef<HTMLInputElement>(null);
@@ -1278,7 +1279,7 @@ export default function BuiltMe() {
     return null;
   };
 
-  const generateRenders = async () => {
+  const generateRenders = async (minorMode: "safe_preview" | "ai_realistic" = "safe_preview") => {
     if (savedRoomPhotos.length === 0) {
       alert("No room photos found.");
       return;
@@ -1323,6 +1324,7 @@ export default function BuiltMe() {
         fd.append("isMinorRenovation", "true");
         fd.append("selectedFinishes", JSON.stringify(selectedFinishes));
         fd.append("selectedSurfaces", JSON.stringify(builtSurfaces));
+        fd.append("surfaceRenderMode", minorMode);
         fd.append("renderPromptExtra", renderPromptExtra || "");
         try {
           const res = await fetch("/api/render", { method: "POST", body: fd });
@@ -1339,9 +1341,10 @@ export default function BuiltMe() {
             } catch { /* keep transient url */ }
             setSurfaceEditsApplied(data.surfaceEdits || []);
             setSurfaceRenderWarnings(data.warnings || []);
+            setLastSurfaceRenderMode(data.renderMode || minorMode);
             setAllRenders([{ photoIndex: selectedRenderPhoto, url }]);
             setRenders([url]);
-            appendRenderToHistory({ mode: "restyle", beforeImage: URL.createObjectURL(photo), afterImage: url, angleLabel: `Angle ${selectedRenderPhoto + 1}`, selectedProduct: getSelectedReplacementProduct(), promptExtra: renderPromptExtra || "" });
+            appendRenderToHistory({ mode: "restyle", beforeImage: URL.createObjectURL(photo), afterImage: url, angleLabel: `${data.renderMode === "ai_realistic" ? "AI Realistic" : "Safe Preview"}`, selectedProduct: getSelectedReplacementProduct(), promptExtra: renderPromptExtra || "" });
             localStorage.setItem("builtme_renders", JSON.stringify([url]));
             if (savedProjectId) {
               try { await supabase.from("builtme_projects").update({ renders: [url] }).eq("id", savedProjectId); } catch (e) { console.error(e); }
@@ -3858,29 +3861,53 @@ Placement rule: ${p.placementRule}`
                       </div>
                     )}
 
-                    <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-                      <button
-                        className="btn-primary"
-                        onClick={() => generateRenders()}
-                        disabled={renderLoading || (savedRoomPhotos.length === 0 && !roomPhoto)}
-                        style={{ flex: 1, fontSize: 14, padding: "14px 0" }}
-                      >
-                        {renderLoading ? "Generating render..."
-                          : isMinorRenovation && Object.values(surfaceRegions).some(r => r.length > 0) && minorMissingSurfaceLabels.length === 0
-                            ? "Generate precise surface render →"
-                            : renders.length === 0 ? "Generate AI render →" : "Regenerate render →"}
-                      </button>
-                      {renderPromptExtra.trim() && (
+                    {/* Minor renovation with surfaces → Safe Preview + AI Realistic */}
+                    {isMinorRenovation && Object.values(surfaceRegions).some(r => r.length > 0) ? (
+                      <div style={{ marginBottom: 24 }}>
+                        <div style={{ fontSize: 12, color: "#AAA", marginBottom: 10 }}>
+                          Safe Preview applies your selected finishes exactly inside the selected surface masks. AI Render makes it more realistic.
+                        </div>
+                        <div style={{ display: "flex", gap: 10 }}>
+                          <button
+                            className="btn-primary"
+                            onClick={() => generateRenders("safe_preview")}
+                            disabled={renderLoading || minorMissingSurfaceLabels.length > 0}
+                            style={{ flex: 1, fontSize: 14, padding: "14px 0" }}
+                          >
+                            {renderLoading ? "Working..." : "Instant safe preview →"}
+                          </button>
+                          <button
+                            className="btn-ghost"
+                            onClick={() => generateRenders("ai_realistic")}
+                            disabled={renderLoading || minorMissingSurfaceLabels.length > 0}
+                            style={{ flex: 1, fontSize: 14, padding: "14px 0" }}
+                          >
+                            {renderLoading ? "Working..." : "Generate realistic AI render →"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
                         <button
-                          className="btn-ghost"
-                          onClick={reAnalyseWithPrompt}
-                          disabled={renderLoading || isLoading}
-                          style={{ fontSize: 13, padding: "14px 20px" }}
+                          className="btn-primary"
+                          onClick={() => generateRenders()}
+                          disabled={renderLoading || (savedRoomPhotos.length === 0 && !roomPhoto)}
+                          style={{ flex: 1, fontSize: 14, padding: "14px 0" }}
                         >
-                          {renderLoading || isLoading ? "Updating design..." : "Update design & render →"}
+                          {renderLoading ? "Generating render..." : renders.length === 0 ? "Generate AI render →" : "Regenerate render →"}
                         </button>
-                      )}
-                    </div>
+                        {renderPromptExtra.trim() && (
+                          <button
+                            className="btn-ghost"
+                            onClick={reAnalyseWithPrompt}
+                            disabled={renderLoading || isLoading}
+                            style={{ fontSize: 13, padding: "14px 20px" }}
+                          >
+                            {renderLoading || isLoading ? "Updating design..." : "Update design & render →"}
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* Loading states */}
                     {renderLoading && allRenders.length === 0 && (
@@ -3898,9 +3925,14 @@ Placement rule: ${p.placementRule}`
                     {/* Minor renovation: surface edits applied summary */}
                     {isMinorRenovation && (surfaceEditsApplied.length > 0 || surfaceRenderWarnings.length > 0) && (
                       <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FAF8F5", border: "1px solid #EAE4D9", borderRadius: 4 }}>
+                        {lastSurfaceRenderMode && (
+                          <div className="mono" style={{ fontSize: 10, color: "#7A6A55", letterSpacing: "0.1em", marginBottom: 8 }}>
+                            RENDER MODE: {lastSurfaceRenderMode === "ai_realistic" ? "AI REALISTIC" : "SAFE PREVIEW"}
+                          </div>
+                        )}
                         {surfaceEditsApplied.length > 0 && (
                           <>
-                            <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 8 }}>SURFACE EDITS APPLIED</div>
+                            <div className="mono" style={{ fontSize: 10, color: "#C4A882", letterSpacing: "0.1em", marginBottom: 8 }}>SURFACE FINISHES APPLIED</div>
                             {surfaceEditsApplied.map((e, i) => (
                               <div key={i} style={{ fontSize: 12, color: "#7A6A55", marginBottom: 2 }}>
                                 <strong>{e.surfaceLabel}</strong> → {e.finishName}
